@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siargao Surfing 2026</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --ink: #1d2327; --muted: #6b7378; --line: #e3e0d8;
+    --lineup: #9aa3a8; --paddle: #2f6fb0; --out: #3aa3a0; --ride: #e8572a; --short: #f2a33a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171a; --card: #1b2226; --ink: #e9ecee; --muted: #9aa4aa; --line: #2b3439;
+      --lineup: #6c767c; --paddle: #5b9be0; --out: #4cc3bf; --ride: #ff6d3f; --short: #f5b65a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171a; --card: #1b2226; --ink: #e9ecee; --muted: #9aa4aa; --line: #2b3439;
+    --lineup: #6c767c; --paddle: #5b9be0; --out: #4cc3bf; --ride: #ff6d3f; --short: #f5b65a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs button { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 7px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 14px; }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .tile span { color: var(--muted); font-size: 13px; }
+  #map { height: 460px; border-radius: 10px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  .bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; margin: 6px 0 8px; }
+  .chartbox { position: relative; height: 240px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: color-mix(in srgb, var(--ride) 8%, transparent); }
+  .scroll { overflow-x: auto; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } #map { height: 340px; } }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Siargao Surfing 2026</h1>
+  <p class="sub" id="sub"></p>
+
+  <section class="card">
+    <h2>All sessions</h2>
+    <div class="scroll"><table id="trend"></table></div>
+    <div class="chartbox" style="height:200px;margin-top:12px"><canvas id="trendChart"></canvas></div>
+  </section>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="tiles" id="tiles" style="margin-bottom:16px"></div>
+
+  <section class="card">
+    <h2>Map</h2>
+    <div id="map"></div>
+    <div class="legend">
+      <span><i style="background:var(--ride)"></i>Ride</span>
+      <span><i style="background:var(--out)"></i>Paddle out after a ride</span>
+      <span><i style="background:var(--paddle)"></i>Paddling / positioning</span>
+      <span><i style="background:var(--lineup)"></i>Sitting in the lineup</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Speed over the session</h2>
+    <div class="chartbox"><canvas id="speedChart"></canvas></div>
+    <p class="note">Orange bands are detected rides. Speeds come from a watch in Open Water mode, which filters GPS for swimming speeds, so they understate real board speed but are consistent between sessions.</p>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Where the time went</h2>
+      <div class="bar" id="timebar"></div>
+      <div class="legend" id="timelegend"></div>
+    </section>
+    <section class="card">
+      <h2>Other wave activity</h2>
+      <div id="other"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Waves</h2>
+    <div class="scroll"><table id="waves"></table></div>
+    <p class="note">Click a wave to zoom the map to it.</p>
+  </section>
+</main>
+
+<script>
+const D = /*__DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COLORS = () => ({ riding: css('--ride'), paddle_out: css('--out'), paddling: css('--paddle'), lineup: css('--lineup') });
+const fmtMin = s => { const m = Math.floor(s / 60), r = Math.round(s % 60); return `${m}:${String(r).padStart(2, '0')}`; };
+const day = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+document.getElementById('sub').textContent =
+  `${D.length} session${D.length === 1 ? '' : 's'} · ${D.reduce((a, s) => a + s.summary.waves, 0)} waves ridden · from Garmin Open Water Swimming exports`;
+
+// ---- trend table + chart
+const tcols = [['date', 'Date', v => day(v)], ['duration_min', 'Min'], ['waves', 'Waves'], ['waves_per_hour', 'Waves/h'],
+  ['top_speed_ms', 'Top m/s'], ['longest_ride_m', 'Longest m'], ['total_ride_m', 'Ridden m'], ['paddle_m', 'Paddled m'], ['avg_hr', 'Avg HR']];
+const trend = document.getElementById('trend');
+trend.innerHTML = '<tr>' + tcols.map(c => `<th>${c[1]}</th>`).join('') + '</tr>' +
+  D.map((s, i) => '<tr class="click" data-i="' + i + '">' + tcols.map(c => `<td>${c[2] ? c[2](s.summary[c[0]]) : (s.summary[c[0]] ?? '–')}</td>`).join('') + '</tr>').join('');
+trend.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => select(+tr.dataset.i));
+
+let trendChart, speedChart, map, layers = [];
+function drawTrend() {
+  trendChart?.destroy();
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    data: {
+      labels: D.map(s => day(s.summary.date)),
+      datasets: [
+        { type: 'bar', label: 'Waves', data: D.map(s => s.summary.waves), backgroundColor: css('--ride'), yAxisID: 'y', borderRadius: 4 },
+        { type: 'line', label: 'Top speed (m/s)', data: D.map(s => s.summary.top_speed_ms), borderColor: css('--paddle'), backgroundColor: css('--paddle'), yAxisID: 'y2', tension: .3 },
+      ]
+    },
+    options: { maintainAspectRatio: false, plugins: { legend: { labels: { color: css('--muted') } } },
+      scales: { x: { ticks: { color: css('--muted') }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: css('--muted'), precision: 0 }, grid: { color: css('--line') }, title: { display: true, text: 'waves', color: css('--muted') } },
+        y2: { position: 'right', beginAtZero: true, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'm/s', color: css('--muted') } } } }
+  });
+}
+
+// ---- tabs
+const tabs = document.getElementById('tabs');
+D.forEach((s, i) => { const b = document.createElement('button'); b.textContent = day(s.summary.date); b.onclick = () => select(i); tabs.appendChild(b); });
+
+let cur = D.length - 1;
+function select(i) {
+  cur = i;
+  [...tabs.children].forEach((b, j) => b.classList.toggle('on', j === i));
+  const S = D[i], s = S.summary, T = S.track;
+  const tiles = [
+    [s.waves, 'waves ridden'], [s.waves_per_hour, 'waves per hour'], [s.top_speed_ms + ' m/s', 'top speed'],
+    [s.longest_ride_m + ' m', `longest ride (${s.longest_ride_s}s)`], [s.total_ride_m + ' m', 'total distance ridden'],
+    [s.duration_min + ' min', 'session length'], [(s.paddle_m / 1000).toFixed(2) + ' km', 'paddled'],
+    [s.avg_hr ? s.avg_hr + ' bpm' : '–', `avg HR (max ${s.max_hr ?? '–'})`],
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span></div>`).join('');
+
+  // map
+  const C = COLORS();
+  if (!map) {
+    map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 20, maxNativeZoom: 18, attribution: 'Imagery © Esri' }).addTo(map);
+  }
+  layers.forEach(l => l.remove()); layers = [];
+  let seg = [], st = null;
+  const flush = () => { if (seg.length > 1) layers.push(L.polyline(seg, { color: C[st], weight: st === 'riding' ? 5 : 2.5, opacity: st === 'lineup' ? .7 : .9 }).addTo(map)); };
+  for (let k = 0; k < T.t.length; k++) {
+    if (T.lat[k] == null || isNaN(T.lat[k])) continue;
+    const p = [T.lat[k], T.lon[k]];
+    if (T.st[k] !== st) { if (seg.length) seg.push(p); flush(); seg = [p]; st = T.st[k]; } else seg.push(p);
+  }
+  flush();
+  const rides = S.bursts.filter(b => b.kind === 'ride');
+  rides.forEach(b => layers.push(L.marker([b.lat, b.lon], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${C.riding}">${b.wave}</span>`, iconSize: [24, 18], iconAnchor: [12, 9] }) })
+    .bindTooltip(`Wave ${b.wave}: ${b.distance_m.toFixed(0)} m, ${b.seconds}s, peak ${b.peak_speed.toFixed(2)} m/s`).addTo(map)));
+  const pts = T.lat.map((la, k) => [la, T.lon[k]]).filter(p => p[0] != null && !isNaN(p[0]));
+  map.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+
+  // speed chart with ride bands
+  speedChart?.destroy();
+  const bands = { id: 'bands', beforeDatasetsDraw(ch) {
+    const { ctx, chartArea: a, scales: { x } } = ch; ctx.save(); ctx.fillStyle = css('--ride') + '33';
+    rides.forEach(b => { const x0 = x.getPixelForValue(b.elapsed_min), x1 = x.getPixelForValue(b.elapsed_min + b.seconds / 60); ctx.fillRect(x0, a.top, Math.max(2, x1 - x0), a.bottom - a.top); });
+    ctx.restore(); } };
+  speedChart = new Chart(document.getElementById('speedChart'), {
+    type: 'line', plugins: [bands],
+    data: { datasets: [
+      { label: 'Speed (m/s)', data: T.t.map((t, k) => ({ x: t / 60, y: T.v[k] })), borderColor: css('--paddle'), borderWidth: 1, pointRadius: 0, yAxisID: 'y' },
+      { label: 'Stroke rate (/min)', data: T.t.map((t, k) => ({ x: t / 60, y: T.sr[k] })), borderColor: css('--lineup'), borderWidth: .8, pointRadius: 0, yAxisID: 'y2' },
+    ] },
+    options: { maintainAspectRatio: false, animation: false, parsing: false, interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+      plugins: { legend: { labels: { color: css('--muted') } }, decimation: { enabled: true, algorithm: 'min-max' },
+        tooltip: { callbacks: { title: it => fmtMin(it[0].parsed.x * 60) } } },
+      scales: { x: { type: 'linear', ticks: { color: css('--muted'), callback: v => v + ' min' }, grid: { color: css('--line') } },
+        y: { min: 0, ticks: { color: css('--muted') }, grid: { color: css('--line') }, title: { display: true, text: 'm/s', color: css('--muted') } },
+        y2: { position: 'right', min: 0, max: 80, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'strokes/min', color: css('--muted') } } } }
+  });
+
+  // time split
+  const parts = [['riding', 'Riding', s.riding_min], ['paddle_out', 'Paddling out', s.paddle_out_min], ['paddling', 'Paddling / positioning', s.paddling_min], ['lineup', 'Sitting in lineup', s.lineup_min]];
+  const tot = parts.reduce((a, p) => a + p[2], 0) || 1;
+  document.getElementById('timebar').innerHTML = parts.map(p => `<div title="${p[1]}" style="width:${p[2] / tot * 100}%;background:${C[p[0]]}"></div>`).join('');
+  document.getElementById('timelegend').innerHTML = parts.map(p => `<span><i style="background:${C[p[0]]}"></i>${p[1]} ${p[2]} min (${Math.round(p[2] / tot * 100)}%)</span>`).join('');
+
+  document.getElementById('other').innerHTML =
+    `<div class="tiles"><div class="tile"><b>${s.short_rides}</b><span>short glides (fast, no strokes, but too slow/short to count)</span></div>
+     <div class="tile"><b>${s.attempts}</b><span>sprints that didn't turn into a ride</span></div>
+     <div class="tile"><b>${s.total_strokes}</b><span>paddle strokes</span></div></div>`;
+
+  // waves table
+  const wt = document.getElementById('waves');
+  wt.innerHTML = '<tr><th>#</th><th>At</th><th>Duration</th><th>Distance</th><th>Peak m/s</th><th>Avg m/s</th><th>Heading</th></tr>' +
+    (rides.length ? rides.map(b => `<tr class="click" data-w="${b.wave}"><td><span class="pill" style="background:${C.riding}">${b.wave}</span></td><td>${fmtMin(b.elapsed_min * 60)}</td><td>${b.seconds}s</td><td>${b.distance_m.toFixed(0)} m</td><td>${b.peak_speed.toFixed(2)}</td><td>${b.avg_speed.toFixed(2)}</td><td>${Math.round(b.heading)}°</td></tr>`).join('')
+      : '<tr><td colspan="7" style="text-align:left;color:var(--muted)">No rides detected in this session.</td></tr>');
+  wt.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => {
+    const b = rides.find(r => r.wave === +tr.dataset.w);
+    map.fitBounds(L.latLngBounds([[b.lat, b.lon], [b.lat_end, b.lon_end]]), { padding: [80, 80], maxZoom: 19 });
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+drawTrend();
+select(cur);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { drawTrend(); select(cur); });
+</script>
+</body>
+</html>
