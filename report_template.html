@@ -36,7 +36,7 @@
   .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
   .tile span { color: var(--muted); font-size: 13px; }
-  #map { height: 460px; border-radius: 10px; }
+  #map { height: 460px; border-radius: 10px; min-width: 0; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
   .legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; margin: 6px 0 8px; }
@@ -62,6 +62,26 @@
   .scrub input { flex: 1; min-width: 0; accent-color: var(--ride); }
   #posinfo { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 170px; text-align: right; }
   @media (max-width: 560px) { #posinfo { min-width: 0; } .scrub { flex-wrap: wrap; } #posinfo { width: 100%; text-align: left; } }
+  .duo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: stretch; }
+  .duo-chart { display: flex; flex-direction: column; min-width: 0; }
+  .duo-chart h3 { font-size: 15px; margin: 2px 0 8px; }
+  .duo-chart .chartbox { flex: 1; min-height: 260px; height: auto; }
+  @media (max-width: 900px) { .duo { grid-template-columns: 1fr; } .duo-chart .chartbox { min-height: 240px; flex: none; height: 240px; } }
+  .scale { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .scale .bar { height: 8px; border-radius: 4px; margin: 4px 0 2px; }
+  .scale .ends { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+  .tick { color: #fff; font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-shadow: 0 0 3px #000, 0 0 3px #000; white-space: nowrap; }
+  .stepper select { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 10px; }
+  .wcard { border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; background: var(--bg); transition: border-color .15s, transform .15s; }
+  .wcard:hover { border-color: var(--muted); transform: translateY(-1px); }
+  .wcard.on { border-color: var(--ride); box-shadow: 0 0 0 1px var(--ride); }
+  .wc-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); gap: 6px; }
+  .wc-head .badge { font-size: 11px; font-weight: 600; color: var(--ride); }
+  .wcard svg { display: block; width: 100%; height: auto; margin-top: 6px; }
+  .wc-map { background: color-mix(in srgb, var(--paddle) 10%, transparent); border-radius: 6px; }
+  .wc-stats { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .wc-stats b { color: var(--ink); font-size: 14px; display: block; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; }
 </style>
 </head>
@@ -98,20 +118,40 @@
       </div>
     </div>
     <div id="winfo" class="winfo"></div>
-    <div id="map"></div>
+    <div class="duo">
+      <div id="map"></div>
+      <div class="duo-chart">
+        <h3 id="speedTitle">Speed over the session</h3>
+        <div class="chartbox" id="speedBox"><canvas id="speedChart"></canvas></div>
+        <div class="scale" id="speedScale"></div>
+      </div>
+    </div>
     <div id="scrub" class="scrub">
       <button id="play" aria-label="Play">▶</button>
       <input type="range" id="pos" min="0" max="1" value="0" step="1">
       <span id="posinfo"></span>
     </div>
     <div class="legend" id="maplegend"></div>
-    <p class="note" id="maphint">Use ◀ ▶ (or the arrow keys) to step through the waves, and the slider or ▶ to replay a wave second by second.</p>
+    <p class="note" id="maphint">Use ◀ ▶ (or the arrow keys) to step through the waves. Hover the map or the chart, drag the slider, or press ▶ to move through a wave second by second: the map, chart and slider move together.</p>
+    <p class="note">Speeds come from a watch in Open Water mode, which filters GPS for swimming speeds, so they understate real board speed but are consistent between sessions.</p>
   </section>
 
   <section class="card">
-    <h2 id="speedTitle">Speed over the session</h2>
-    <div class="chartbox"><canvas id="speedChart"></canvas></div>
-    <p class="note"><span id="speedNote"></span> Orange bands are detected rides. Speeds come from a watch in Open Water mode, which filters GPS for swimming speeds, so they understate real board speed but are consistent between sessions.</p>
+    <div class="viewerbar">
+      <h2 style="margin:0">Wave cards</h2>
+      <div class="stepper">
+        <button id="scopeS" class="ghost on">This session</button>
+        <button id="scopeA" class="ghost">All sessions</button>
+        <select id="sortW" aria-label="Sort waves">
+          <option value="time">In order</option>
+          <option value="dist">Longest distance</option>
+          <option value="dur">Longest time</option>
+          <option value="peak">Fastest</option>
+        </select>
+      </div>
+    </div>
+    <div id="cards" class="cards"></div>
+    <p class="note">Every card uses the same scale (map and time), so a longer ride really looks longer. Colours follow the speed scale above; the grey stub is the last 8 s of paddle-in. Click a card to open the wave in the map.</p>
   </section>
 
   <section class="card">
@@ -132,6 +172,23 @@ const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).
 const COLORS = () => ({ riding: css('--ride'), paddle_out: css('--out'), paddling: css('--paddle'), lineup: css('--lineup') });
 const fmtMin = s => { const m = Math.floor(s / 60), r = Math.round(s % 60); return `${m}:${String(r).padStart(2, '0')}`; };
 const day = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+// ---- speed colour scale: fixed across waves and sessions so a colour always means the same speed
+const SPEED_STOPS = [[0.6, [59, 130, 246]], [1.2, [34, 211, 238]], [1.7, [163, 230, 53]], [2.1, [250, 204, 21]], [2.5, [249, 115, 22]], [2.9, [220, 38, 38]]];
+function speedColor(v) {
+  const s = SPEED_STOPS, rgb = c => `rgb(${c.map(Math.round).join(',')})`;
+  if (!(v > s[0][0])) return rgb(s[0][1]);
+  for (let i = 1; i < s.length; i++) if (v <= s[i][0]) {
+    const t = (v - s[i - 1][0]) / (s[i][0] - s[i - 1][0]);
+    return rgb(s[i - 1][1].map((c, j) => c + (s[i][1][j] - c) * t));
+  }
+  return rgb(s[s.length - 1][1]);
+}
+document.getElementById('speedScale').innerHTML =
+  `Speed colour <div class="bar" style="background:linear-gradient(90deg, ${SPEED_STOPS.map(([v, c]) => `rgb(${c}) ${((v - .6) / 2.3 * 100).toFixed(0)}%`).join(', ')})"></div>` +
+  `<div class="ends"><span>≤ 0.6 m/s</span><span>1.7</span><span>≥ 2.9 m/s</span></div>`;
+// every ride of every session, with its index range in the per-second track
+const RIDES = D.map(S => S.bursts.filter(b => b.kind === 'ride').map(b => ({ ...b, k0: S.track.w.indexOf(b.wave), k1: S.track.w.lastIndexOf(b.wave) })));
 
 document.getElementById('sub').textContent =
   `${D.length} session${D.length === 1 ? '' : 's'} · ${D.reduce((a, s) => a + s.summary.waves, 0)} waves ridden · from Garmin Open Water Swimming exports`;
@@ -234,10 +291,9 @@ function select(i) {
     map = L.map('map', { zoomControl: true });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 20, maxNativeZoom: 18, attribution: 'Imagery © Esri' }).addTo(map);
+    map.on('mousemove', onMapHover);
   }
-  const rides = S.bursts.filter(b => b.kind === 'ride');
-  // index range of every ride in the per-second track
-  rides.forEach(b => { b.k0 = T.w.indexOf(b.wave); b.k1 = T.w.lastIndexOf(b.wave); });
+  const rides = RIDES[i];
   V = { S, T, rides, C, wave: rides.length ? 0 : -1 };
 
   // speed chart with ride bands
@@ -255,11 +311,20 @@ function select(i) {
   speedChart = new Chart(document.getElementById('speedChart'), {
     type: 'line', plugins: [bands],
     data: { datasets: [
-      { label: 'Speed (m/s)', data: T.t.map((t, k) => ({ x: t / 60, y: T.v[k] })), borderColor: css('--paddle'), borderWidth: 1, pointRadius: 0, yAxisID: 'y' },
+      { label: 'Speed (m/s)', data: T.t.map((t, k) => ({ x: t / 60, y: T.v[k] })), borderColor: css('--paddle'), borderWidth: 1.2, pointRadius: 0, yAxisID: 'y',
+        // in single-wave mode the line takes the same speed colours as the map
+        segment: { borderColor: c => V && V.wave >= 0 ? speedColor((c.p0.parsed.y + c.p1.parsed.y) / 2) : undefined,
+                   borderWidth: c => V && V.wave >= 0 ? 2.5 : undefined } },
       { label: 'Stroke rate (/min)', data: T.t.map((t, k) => ({ x: t / 60, y: T.sr[k] })), borderColor: css('--lineup'), borderWidth: .8, pointRadius: 0, yAxisID: 'y2' },
     ] },
     options: { maintainAspectRatio: false, animation: false, parsing: false, interaction: { mode: 'nearest', intersect: false, axis: 'x' },
-      plugins: { legend: { labels: { color: css('--muted') } }, decimation: { enabled: true, algorithm: 'min-max' },
+      onHover: (e, _els, ch) => {   // shared cursor: hovering the chart moves the map dot and slider
+        if (!V || V.wave < 0 || playTimer) return;
+        const sec = ch.scales.x.getValueForPixel(e.x) * 60;
+        let k = V.w0; while (k < V.w1 && V.T.t[k] < sec) k++;
+        document.getElementById('pos').value = k; moveCursor(k);
+      },
+      plugins: { legend: { labels: { color: css('--muted') } }, decimation: { enabled: false },
         tooltip: { callbacks: { title: it => fmtMin(it[0].parsed.x * 60) } } },
       scales: { x: { type: 'linear', ticks: { color: css('--muted'), callback: v => fmtMin(v * 60) }, grid: { color: css('--line') } },
         y: { min: 0, ticks: { color: css('--muted') }, grid: { color: css('--line') }, title: { display: true, text: 'm/s', color: css('--muted') } },
@@ -280,6 +345,7 @@ function select(i) {
     showWave(rides.findIndex(r => r.wave === +tr.dataset.w));
     document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
+  drawCards();
   showWave(V.wave);
 }
 
@@ -325,29 +391,56 @@ function showWave(n) {
     document.getElementById('maplegend').innerHTML = lg(C.riding, 'Ride') + lg(C.paddle_out, 'Paddle out after a ride') + lg(C.paddling, 'Paddling / positioning') + lg(C.lineup, 'Sitting in the lineup');
     zoomSpeed(null);
     document.getElementById('speedTitle').textContent = 'Speed over the session';
-    document.getElementById('speedNote').textContent = '';
+    document.getElementById('speedScale').style.display = 'none';
+    markCard();
     return;
   }
   document.getElementById('speedTitle').textContent = `Speed across wave ${n + 1}`;
-  document.getElementById('speedNote').textContent = `From ${LEAD_S}s before take-off to ${TAIL_S}s after the ride; the dashed line follows the replay slider. Switch to "Whole session" above the map for the full session.`;
+  document.getElementById('speedScale').style.display = '';
+  markCard();
 
   const b = rides[n];
   const w0 = Math.max(0, b.k0 - LEAD_S), w1 = Math.min(T.t.length - 1, b.k1 + TAIL_S);
   V.w0 = w0; V.w1 = w1;
   // faint context: the rest of the session, so you can see where in the break this wave happened
-  drawTrack(T, 0, T.t.length - 1, () => ({ color: '#ffffff', weight: 1.5, opacity: .3 }));
-  drawTrack(T, w0, w1, k => k < b.k0 ? { color: '#7fc4ff', weight: 4, opacity: 1, dashArray: '8 6' }
-    : k <= b.k1 ? { color: C.riding, weight: 6, opacity: 1 } : { color: '#6ff0d8', weight: 4, opacity: 1, dashArray: '3 6' });
-  const pin = (k, txt, col) => ok(T, k) && layers.push(L.marker([T.lat[k], T.lon[k]], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${col}">${txt}</span>`, iconSize: [44, 18], iconAnchor: [22, 22] }) }).addTo(map));
-  pin(b.k0, 'take-off', C.riding); pin(b.k1, 'end', '#444');
-  cursor = L.circleMarker([0, 0], { radius: 7, color: '#fff', weight: 2, fillColor: C.riding, fillOpacity: 1 });
-  const pts = []; for (let k = w0; k <= w1; k++) if (ok(T, k)) pts.push([T.lat[k], T.lon[k]]);
-  map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 19 });
+  drawTrack(T, 0, T.t.length - 1, () => ({ color: '#ffffff', weight: 1.5, opacity: .25 }));
+  // paddle-in and aftermath: neutral dashed white, so the speed colours belong to the ride only
+  drawTrack(T, w0, b.k0, () => ({ color: '#ffffff', weight: 3, opacity: .85, dashArray: '7 6' }));
+  drawTrack(T, b.k1, w1, () => ({ color: '#ffffff', weight: 3, opacity: .55, dashArray: '2 6' }));
+  // the ride: dark halo underneath, then one segment per second coloured by speed
+  const ridePts = []; for (let k = b.k0; k <= b.k1; k++) if (ok(T, k)) ridePts.push([T.lat[k], T.lon[k]]);
+  layers.push(L.polyline(ridePts, { color: '#000', weight: 12, opacity: .45, lineCap: 'round' }).addTo(map));
+  for (let k = b.k0; k < b.k1; k++) if (ok(T, k) && ok(T, k + 1))
+    layers.push(L.polyline([[T.lat[k], T.lon[k]], [T.lat[k + 1], T.lon[k + 1]]], { color: speedColor((T.v[k] + T.v[k + 1]) / 2), weight: 8, opacity: 1, lineCap: 'round' }).addTo(map));
+  // one dot per second: wide gaps = fast, bunched = slow. Small faint dots before/after, labels every 5 s
+  for (let k = w0; k <= w1; k++) {
+    if (!ok(T, k)) continue;
+    const inRide = k >= b.k0 && k <= b.k1;
+    layers.push(L.circleMarker([T.lat[k], T.lon[k]], { radius: inRide ? 2.6 : 1.6, stroke: false, fillColor: '#fff', fillOpacity: inRide ? 1 : .6, interactive: false }).addTo(map));
+  }
+  const pin = (k, txt, col) => ok(T, k) && layers.push(L.marker([T.lat[k], T.lon[k]], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${col}">${txt}</span>`, iconSize: [44, 18], iconAnchor: [22, 26] }) }).addTo(map));
+  pin(b.k0, 'take-off', '#111'); pin(b.k1, 'end', '#111');
+  cursor = L.circleMarker([0, 0], { radius: 8, color: '#fff', weight: 3, fillColor: '#111', fillOpacity: 1 });
+  // frame the ride plus a little run-up, so the wave fills the map (the full paddle-in may run off the edge)
+  const pts = []; for (let k = Math.max(w0, b.k0 - 12); k <= Math.min(w1, b.k1 + 4); k++) if (ok(T, k)) pts.push([T.lat[k], T.lon[k]]);
+  map.fitBounds(L.latLngBounds(pts), { padding: [36, 36], maxZoom: 20, animate: false });
+  // "+5s" labels, skipping any that would sit within 36 px of the previous one
+  let last = ok(T, b.k0) ? map.latLngToContainerPoint([T.lat[b.k0], T.lon[b.k0]]) : null;  // keep clear of the take-off pin
+  for (let k = b.k0 + 5; k <= b.k1; k += 5) {
+    if (!ok(T, k)) continue;
+    const q = map.latLngToContainerPoint([T.lat[k], T.lon[k]]);
+    if (last && Math.hypot(q.x - last.x, q.y - last.y) < 36) continue;
+    last = q;
+    layers.push(L.marker([T.lat[k], T.lon[k]], { interactive: false, icon: L.divIcon({ className: 'tick', html: `+${k - b.k0}s`, iconSize: [34, 14], iconAnchor: [-8, 16] }) }).addTo(map));
+  }
 
   document.getElementById('winfo').innerHTML =
     `<span>Starts <b>${fmtMin(T.t[b.k0])}</b></span><span>Ride <b>${b.seconds}s</b></span><span><b>${b.distance_m.toFixed(0)} m</b></span>` +
     `<span>Peak <b>${b.peak_speed.toFixed(2)} m/s</b></span><span>Avg <b>${b.avg_speed.toFixed(2)} m/s</b></span><span>Heading <b>${Math.round(b.heading)}°</b></span>`;
-  document.getElementById('maplegend').innerHTML = lg('#7fc4ff', `Paddle-in (${LEAD_S}s before)`) + lg(C.riding, 'Ride') + lg('#6ff0d8', `After (${TAIL_S}s)`) + lg('#bbbbbb', 'Rest of session');
+  document.getElementById('maplegend').innerHTML =
+    `<span><i style="background:linear-gradient(90deg, rgb(34,211,238), rgb(250,204,21), rgb(220,38,38))"></i>Ride, coloured by speed</span>` +
+    `<span><i style="background:repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 8px)"></i>Paddle-in (${LEAD_S}s) and after (${TAIL_S}s)</span>` +
+    `<span>● one dot per second, labelled every 5 s</span>` + lg('#bbbbbb', 'Rest of session', 1);
   const pos = document.getElementById('pos');
   pos.min = w0; pos.max = w1; pos.value = b.k0;
   moveCursor(b.k0);
@@ -357,7 +450,7 @@ function showWave(n) {
 function moveCursor(k) {
   const { T, C } = V;
   k = +k;
-  if (cursor && ok(T, k)) { cursor.setLatLng([T.lat[k], T.lon[k]]); if (!map.hasLayer(cursor)) cursor.addTo(map); cursor.setStyle({ fillColor: C[T.st[k]] }); }
+  if (cursor && ok(T, k)) { cursor.setLatLng([T.lat[k], T.lon[k]]); if (!map.hasLayer(cursor)) cursor.addTo(map); cursor.setStyle({ fillColor: T.st[k] === 'riding' ? speedColor(T.v[k]) : '#111' }); }
   document.getElementById('posinfo').textContent = `${fmtMin(T.t[k])} · ${T.v[k].toFixed(2)} m/s · ${PHASE[T.st[k]]}${T.sr[k] ? ` · ${T.sr[k]} strokes/min` : ''}`;
   if (speedChart) { speedChart.$cursor = T.t[k] / 60; speedChart.draw(); }
 }
@@ -381,6 +474,87 @@ function zoomSpeed(range) {
   speedChart.$cursor = null;
   speedChart.update('none');
 }
+
+// shared cursor, map side: hovering near the wave's track moves the slider and the chart line
+function onMapHover(e) {
+  if (!V || V.wave < 0 || playTimer) return;
+  const { T } = V, p = e.containerPoint;
+  let best = -1, bd = 28 * 28;  // only react within ~28 px of the track
+  for (let k = V.w0; k <= V.w1; k++) {
+    if (!ok(T, k)) continue;
+    const q = map.latLngToContainerPoint([T.lat[k], T.lon[k]]), d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    if (d < bd) { bd = d; best = k; }
+  }
+  if (best >= 0) { document.getElementById('pos').value = best; moveCursor(best); }
+}
+
+// ---------------------------------------------------------------- wave cards
+// Same metres-per-pixel and seconds-per-pixel on every card, so cards compare at a glance.
+let cardScope = 'session', cardSort = 'time';
+const CARD_W = 160, MAP_H = 96, SPARK_H = 34, CARD_LEAD = 8;
+function cardList() {
+  const out = [];
+  D.forEach((S, si) => {
+    if (cardScope === 'session' && si !== cur) return;
+    RIDES[si].forEach((b, n) => out.push({ si, n, b, T: S.track }));
+  });
+  const key = { time: c => c.si * 1e6 + c.b.k0, dist: c => -c.b.distance_m, dur: c => -c.b.seconds, peak: c => -c.b.peak_speed }[cardSort];
+  return out.sort((a, b) => key(a) - key(b));
+}
+function drawCards() {
+  const list = cardList(), el = document.getElementById('cards');
+  if (!list.length) { el.innerHTML = '<p class="note">No rides detected.</p>'; return; }
+  // project every card's points to local metres (east, north)
+  const lat0 = list[0].T.lat.find(v => v != null && !isNaN(v)) * Math.PI / 180;
+  const xy = (T, k) => [T.lon[k] * 111320 * Math.cos(lat0), T.lat[k] * 110540];
+  let span = 0, maxSec = 0;
+  list.forEach(c => {
+    const { T, b } = c, a = Math.max(0, b.k0 - CARD_LEAD);
+    c.pts = []; for (let k = a; k <= b.k1; k++) if (ok(T, k)) c.pts.push({ k, p: xy(T, k), v: T.v[k], ride: k >= b.k0 });
+    const xs = c.pts.map(q => q.p[0]), ys = c.pts.map(q => q.p[1]);
+    c.cx = (Math.min(...xs) + Math.max(...xs)) / 2; c.cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    span = Math.max(span, (Math.max(...xs) - Math.min(...xs)) / CARD_W, (Math.max(...ys) - Math.min(...ys)) / MAP_H);
+    maxSec = Math.max(maxSec, b.k1 - a + 1);
+  });
+  const mpp = span * 1.15 || 1;           // metres per pixel, shared
+  const spp = maxSec / CARD_W;             // seconds per pixel, shared
+  const bar = [5, 10, 20, 25, 50, 100].find(m => m / mpp > 22) || 100;  // scale bar length in m
+  const best = { dist: Math.max(...list.map(c => c.b.distance_m)), peak: Math.max(...list.map(c => c.b.peak_speed)), dur: Math.max(...list.map(c => c.b.seconds)) };
+  el.innerHTML = list.map(c => {
+    const { b } = c, P = q => [CARD_W / 2 + (q.p[0] - c.cx) / mpp, MAP_H / 2 - (q.p[1] - c.cy) / mpp];
+    let mapSvg = '', spark = '';
+    for (let i = 1; i < c.pts.length; i++) {
+      const [x0, y0] = P(c.pts[i - 1]), [x1, y1] = P(c.pts[i]), ride = c.pts[i].ride && c.pts[i - 1].ride;
+      mapSvg += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${ride ? speedColor((c.pts[i].v + c.pts[i - 1].v) / 2) : 'var(--muted)'}" stroke-width="${ride ? 4 : 2}" stroke-linecap="round" ${ride ? '' : 'stroke-dasharray="3 3"'}/>`;
+      const sx = q => (q.k - c.pts[0].k) / spp, sy = q => SPARK_H - 2 - Math.min(q.v, 3) / 3 * (SPARK_H - 4);
+      spark += `<line x1="${sx(c.pts[i - 1]).toFixed(1)}" y1="${sy(c.pts[i - 1]).toFixed(1)}" x2="${sx(c.pts[i]).toFixed(1)}" y2="${sy(c.pts[i]).toFixed(1)}" stroke="${ride ? speedColor((c.pts[i].v + c.pts[i - 1].v) / 2) : 'var(--muted)'}" stroke-width="2" stroke-linecap="round"/>`;
+    }
+    const t0 = c.pts.find(q => q.ride); const [tx, ty] = t0 ? P(t0) : [0, 0];
+    mapSvg += `<circle cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="3.5" fill="var(--card)" stroke="var(--ink)" stroke-width="1.5"/>`;
+    mapSvg += `<line x1="6" y1="${MAP_H - 6}" x2="${(6 + bar / mpp).toFixed(1)}" y2="${MAP_H - 6}" stroke="var(--muted)" stroke-width="2"/><text x="${(9 + bar / mpp).toFixed(1)}" y="${MAP_H - 3}" font-size="9" fill="var(--muted)">${bar} m</text>`;
+    const badges = [b.distance_m === best.dist && 'longest', b.peak_speed === best.peak && 'fastest', b.seconds === best.dur && b.distance_m !== best.dist && 'longest time'].filter(Boolean).join(' · ');
+    const when = cardScope === 'all' ? `${day(D[c.si].summary.date)} · ` : '';
+    return `<div class="wcard" data-si="${c.si}" data-n="${c.n}" title="Open wave ${b.wave} in the map">
+      <div class="wc-head"><span><span class="pill" style="background:${speedColor(b.peak_speed)}">${b.wave}</span> ${when}${fmtMin(c.T.t[b.k0])}</span><span class="badge">${badges}</span></div>
+      <svg class="wc-map" viewBox="0 0 ${CARD_W} ${MAP_H}" role="img" aria-label="Shape of wave ${b.wave}">${mapSvg}</svg>
+      <svg viewBox="0 0 ${CARD_W} ${SPARK_H}" role="img" aria-label="Speed through wave ${b.wave}"><line x1="0" y1="${SPARK_H - 2}" x2="${CARD_W}" y2="${SPARK_H - 2}" stroke="var(--line)"/>${spark}</svg>
+      <div class="wc-stats"><span><b>${b.seconds}s</b>ride</span><span><b>${b.distance_m.toFixed(0)} m</b>distance</span><span><b>${b.peak_speed.toFixed(2)}</b>peak m/s</span></div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.wcard').forEach(card => card.onclick = () => {
+    const si = +card.dataset.si, n = +card.dataset.n;
+    if (si !== cur) select(si);
+    showWave(n);
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  markCard();
+}
+function markCard() {
+  document.querySelectorAll('.wcard').forEach(c => c.classList.toggle('on', V && +c.dataset.si === cur && +c.dataset.n === V.wave));
+}
+document.getElementById('scopeS').onclick = () => { cardScope = 'session'; document.getElementById('scopeS').classList.add('on'); document.getElementById('scopeA').classList.remove('on'); drawCards(); };
+document.getElementById('scopeA').onclick = () => { cardScope = 'all'; document.getElementById('scopeA').classList.add('on'); document.getElementById('scopeS').classList.remove('on'); drawCards(); };
+document.getElementById('sortW').onchange = e => { cardSort = e.target.value; drawCards(); };
 
 document.getElementById('prevW').onclick = () => V.wave > 0 && showWave(V.wave - 1);
 document.getElementById('nextW').onclick = () => V.wave < V.rides.length - 1 && showWave(V.wave + 1);
