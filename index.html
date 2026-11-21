@@ -76,6 +76,13 @@
     <div class="chartbox" style="height:200px;margin-top:12px"><canvas id="trendChart"></canvas></div>
   </section>
 
+  <section class="card">
+    <h2>Where the time went</h2>
+    <div class="chartbox" id="splitBox"><canvas id="splitChart"></canvas></div>
+    <p class="note">Minutes per session. Hover a bar for the share of the session.</p>
+  </section>
+
+  <h2 style="margin:28px 0 10px">Session detail</h2>
   <div class="tabs" id="tabs"></div>
 
   <div class="tiles" id="tiles" style="margin-bottom:16px"></div>
@@ -102,22 +109,15 @@
   </section>
 
   <section class="card">
-    <h2>Speed over the session</h2>
+    <h2 id="speedTitle">Speed over the session</h2>
     <div class="chartbox"><canvas id="speedChart"></canvas></div>
-    <p class="note">Orange bands are detected rides. Speeds come from a watch in Open Water mode, which filters GPS for swimming speeds, so they understate real board speed but are consistent between sessions.</p>
+    <p class="note"><span id="speedNote"></span> Orange bands are detected rides. Speeds come from a watch in Open Water mode, which filters GPS for swimming speeds, so they understate real board speed but are consistent between sessions.</p>
   </section>
 
-  <div class="grid2">
-    <section class="card">
-      <h2>Where the time went</h2>
-      <div class="bar" id="timebar"></div>
-      <div class="legend" id="timelegend"></div>
-    </section>
-    <section class="card">
-      <h2>Other wave activity</h2>
-      <div id="other"></div>
-    </section>
-  </div>
+  <section class="card">
+    <h2>Other wave activity</h2>
+    <div id="other"></div>
+  </section>
 
   <section class="card">
     <h2>Waves</h2>
@@ -151,14 +151,65 @@ function drawTrend() {
     data: {
       labels: D.map(s => day(s.summary.date)),
       datasets: [
-        { type: 'bar', label: 'Waves', data: D.map(s => s.summary.waves), backgroundColor: css('--ride'), yAxisID: 'y', borderRadius: 4 },
-        { type: 'line', label: 'Top speed (m/s)', data: D.map(s => s.summary.top_speed_ms), borderColor: css('--paddle'), backgroundColor: css('--paddle'), yAxisID: 'y2', tension: .3 },
+        // lower `order` is drawn last, i.e. on top: keep the speed line above the bars
+        { type: 'bar', label: 'Waves', data: D.map(s => s.summary.waves), backgroundColor: css('--ride') + 'b3', yAxisID: 'y', borderRadius: 4, order: 2 },
+        { type: 'line', label: 'Top speed (m/s)', data: D.map(s => s.summary.top_speed_ms), order: 1, yAxisID: 'y2', tension: .3,
+          borderColor: css('--paddle'), backgroundColor: css('--paddle'), borderWidth: 3,
+          pointRadius: 5, pointHoverRadius: 7, pointBorderColor: css('--card'), pointBorderWidth: 2,
+          segment: { borderColor: css('--paddle') } },
       ]
     },
     options: { maintainAspectRatio: false, plugins: { legend: { labels: { color: css('--muted') } } },
       scales: { x: { ticks: { color: css('--muted') }, grid: { display: false } },
         y: { beginAtZero: true, ticks: { color: css('--muted'), precision: 0 }, grid: { color: css('--line') }, title: { display: true, text: 'waves', color: css('--muted') } },
         y2: { position: 'right', beginAtZero: true, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'm/s', color: css('--muted') } } } }
+  });
+}
+
+// ---- time split across sessions (horizontal stacked bars, minutes)
+let splitChart;
+function drawSplit() {
+  splitChart?.destroy();
+  const C = COLORS();
+  const parts = [['riding', 'Riding', 'riding_min'], ['paddle_out', 'Paddling out', 'paddle_out_min'],
+    ['paddling', 'Paddling / positioning', 'paddling_min'], ['lineup', 'Sitting in lineup', 'lineup_min']];
+  document.getElementById('splitBox').style.height = (70 + D.length * 38) + 'px';
+  const pct = { id: 'pct', afterDatasetsDraw(ch) {  // write each state's share inside its bar segment
+    const { ctx } = ch; ctx.save();
+    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ch.data.datasets.forEach((ds, di) => {
+      if (!ch.isDatasetVisible(di)) return;
+      ch.getDatasetMeta(di).data.forEach((bar, i) => {
+        const s = D[i].summary, tot = s.riding_min + s.paddle_out_min + s.paddling_min + s.lineup_min;
+        const p = Math.round(ds.data[i] / tot * 100), w = Math.abs(bar.x - bar.base);
+        const label = p + '%';
+        if (w < ctx.measureText(label).width + 8) {
+          // riding is usually a thin sliver: show its share at the end of the bar instead
+          if (di === 0 && ds.data[i] > 0) {
+            const end = Math.max(...ch.getSortedVisibleDatasetMetas().map(m => m.data[i].x));
+            ctx.textAlign = 'left'; ctx.fillStyle = css('--ride');
+            ctx.fillText(`${Math.max(p, 1) === p ? p : '<1'}% riding`, end + 8, bar.y);
+            ctx.textAlign = 'center';
+          }
+          return;  // other narrow segments: the hover tooltip still has it
+        }
+        ctx.fillStyle = di === 0 ? '#ffffff' : '#10161a';
+        ctx.fillText(label, (bar.x + bar.base) / 2, bar.y);
+      });
+    });
+    ctx.restore(); } };
+  splitChart = new Chart(document.getElementById('splitChart'), {
+    type: 'bar', plugins: [pct],
+    data: { labels: D.map(s => day(s.summary.date)),
+      datasets: parts.map(([k, label, f]) => ({ label, data: D.map(s => s.summary[f]), backgroundColor: C[k], borderColor: css('--card'), borderWidth: { right: 1 }, barPercentage: .75 })) },
+    options: { indexAxis: 'y', maintainAspectRatio: false, layout: { padding: { right: 90 } },
+      plugins: { legend: { position: 'top', labels: { color: css('--muted'), boxWidth: 14 } },
+        tooltip: { callbacks: { label: c => {
+          const s = D[c.dataIndex].summary, tot = s.riding_min + s.paddle_out_min + s.paddling_min + s.lineup_min;
+          return ` ${c.dataset.label}: ${c.parsed.x} min (${Math.round(c.parsed.x / tot * 100)}%)`; } } } },
+      scales: { x: { stacked: true, ticks: { color: css('--muted'), callback: v => v + ' min' }, grid: { color: css('--line') } },
+        y: { stacked: true, ticks: { color: css('--muted') }, grid: { display: false } } } }
   });
 }
 
@@ -175,7 +226,6 @@ function select(i) {
     [s.waves, 'waves ridden'], [s.waves_per_hour, 'waves per hour'], [s.top_speed_ms + ' m/s', 'top speed'],
     [s.longest_ride_m + ' m', `longest ride (${s.longest_ride_s}s)`], [s.total_ride_m + ' m', 'total distance ridden'],
     [s.duration_min + ' min', 'session length'], [(s.paddle_m / 1000).toFixed(2) + ' km', 'paddled'],
-    [s.avg_hr ? s.avg_hr + ' bpm' : '–', `avg HR (max ${s.max_hr ?? '–'})`],
   ];
   document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span></div>`).join('');
 
@@ -215,12 +265,6 @@ function select(i) {
         y: { min: 0, ticks: { color: css('--muted') }, grid: { color: css('--line') }, title: { display: true, text: 'm/s', color: css('--muted') } },
         y2: { position: 'right', min: 0, max: 80, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'strokes/min', color: css('--muted') } } } }
   });
-
-  // time split
-  const parts = [['riding', 'Riding', s.riding_min], ['paddle_out', 'Paddling out', s.paddle_out_min], ['paddling', 'Paddling / positioning', s.paddling_min], ['lineup', 'Sitting in lineup', s.lineup_min]];
-  const tot = parts.reduce((a, p) => a + p[2], 0) || 1;
-  document.getElementById('timebar').innerHTML = parts.map(p => `<div title="${p[1]}" style="width:${p[2] / tot * 100}%;background:${C[p[0]]}"></div>`).join('');
-  document.getElementById('timelegend').innerHTML = parts.map(p => `<span><i style="background:${C[p[0]]}"></i>${p[1]} ${p[2]} min (${Math.round(p[2] / tot * 100)}%)</span>`).join('');
 
   document.getElementById('other').innerHTML =
     `<div class="tiles"><div class="tile"><b>${s.short_rides}</b><span>short glides (fast, no strokes, but too slow/short to count)</span></div>
@@ -280,8 +324,12 @@ function showWave(n) {
     document.getElementById('winfo').innerHTML = `<span>Whole session · click a numbered wave to step into it</span>`;
     document.getElementById('maplegend').innerHTML = lg(C.riding, 'Ride') + lg(C.paddle_out, 'Paddle out after a ride') + lg(C.paddling, 'Paddling / positioning') + lg(C.lineup, 'Sitting in the lineup');
     zoomSpeed(null);
+    document.getElementById('speedTitle').textContent = 'Speed over the session';
+    document.getElementById('speedNote').textContent = '';
     return;
   }
+  document.getElementById('speedTitle').textContent = `Speed across wave ${n + 1}`;
+  document.getElementById('speedNote').textContent = `From ${LEAD_S}s before take-off to ${TAIL_S}s after the ride; the dashed line follows the replay slider. Switch to "Whole session" above the map for the full session.`;
 
   const b = rides[n];
   const w0 = Math.max(0, b.k0 - LEAD_S), w1 = Math.min(T.t.length - 1, b.k1 + TAIL_S);
@@ -345,9 +393,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); document.getElementById('prevW').click(); }
   if (e.key === ' ' && V && V.wave >= 0) { e.preventDefault(); play(); }
 });
-drawTrend();
+drawTrend(); drawSplit();
 select(cur);
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { drawTrend(); select(cur); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener("change", () => { drawTrend(); drawSplit(); select(cur); });
 </script>
 </body>
 </html>
