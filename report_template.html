@@ -50,6 +50,18 @@
   .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } #map { height: 340px; } }
+  .viewerbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .stepper button, .scrub button { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 6px 11px; cursor: pointer; font: inherit; font-size: 14px; }
+  .stepper button:disabled { opacity: .35; cursor: default; }
+  .stepper button.ghost.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  #wlabel { min-width: 104px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .winfo { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 14px; color: var(--muted); margin-bottom: 10px; min-height: 20px; }
+  .winfo b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .scrub { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .scrub input { flex: 1; min-width: 0; accent-color: var(--ride); }
+  #posinfo { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 170px; text-align: right; }
+  @media (max-width: 560px) { #posinfo { min-width: 0; } .scrub { flex-wrap: wrap; } #posinfo { width: 100%; text-align: left; } }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; }
 </style>
 </head>
@@ -69,14 +81,24 @@
   <div class="tiles" id="tiles" style="margin-bottom:16px"></div>
 
   <section class="card">
-    <h2>Map</h2>
-    <div id="map"></div>
-    <div class="legend">
-      <span><i style="background:var(--ride)"></i>Ride</span>
-      <span><i style="background:var(--out)"></i>Paddle out after a ride</span>
-      <span><i style="background:var(--paddle)"></i>Paddling / positioning</span>
-      <span><i style="background:var(--lineup)"></i>Sitting in the lineup</span>
+    <div class="viewerbar">
+      <h2 style="margin:0">Map</h2>
+      <div class="stepper">
+        <button id="prevW" aria-label="Previous wave">◀</button>
+        <span id="wlabel">Wave 1 of 1</span>
+        <button id="nextW" aria-label="Next wave">▶</button>
+        <button id="allW" class="ghost">Whole session</button>
+      </div>
     </div>
+    <div id="winfo" class="winfo"></div>
+    <div id="map"></div>
+    <div id="scrub" class="scrub">
+      <button id="play" aria-label="Play">▶</button>
+      <input type="range" id="pos" min="0" max="1" value="0" step="1">
+      <span id="posinfo"></span>
+    </div>
+    <div class="legend" id="maplegend"></div>
+    <p class="note" id="maphint">Use ◀ ▶ (or the arrow keys) to step through the waves, and the slider or ▶ to replay a wave second by second.</p>
   </section>
 
   <section class="card">
@@ -100,7 +122,7 @@
   <section class="card">
     <h2>Waves</h2>
     <div class="scroll"><table id="waves"></table></div>
-    <p class="note">Click a wave to zoom the map to it.</p>
+    <p class="note">Click a wave to show it on its own on the map.</p>
   </section>
 </main>
 
@@ -157,34 +179,29 @@ function select(i) {
   ];
   document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span></div>`).join('');
 
-  // map
   const C = COLORS();
   if (!map) {
     map = L.map('map', { zoomControl: true });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 20, maxNativeZoom: 18, attribution: 'Imagery © Esri' }).addTo(map);
   }
-  layers.forEach(l => l.remove()); layers = [];
-  let seg = [], st = null;
-  const flush = () => { if (seg.length > 1) layers.push(L.polyline(seg, { color: C[st], weight: st === 'riding' ? 5 : 2.5, opacity: st === 'lineup' ? .7 : .9 }).addTo(map)); };
-  for (let k = 0; k < T.t.length; k++) {
-    if (T.lat[k] == null || isNaN(T.lat[k])) continue;
-    const p = [T.lat[k], T.lon[k]];
-    if (T.st[k] !== st) { if (seg.length) seg.push(p); flush(); seg = [p]; st = T.st[k]; } else seg.push(p);
-  }
-  flush();
   const rides = S.bursts.filter(b => b.kind === 'ride');
-  rides.forEach(b => layers.push(L.marker([b.lat, b.lon], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${C.riding}">${b.wave}</span>`, iconSize: [24, 18], iconAnchor: [12, 9] }) })
-    .bindTooltip(`Wave ${b.wave}: ${b.distance_m.toFixed(0)} m, ${b.seconds}s, peak ${b.peak_speed.toFixed(2)} m/s`).addTo(map)));
-  const pts = T.lat.map((la, k) => [la, T.lon[k]]).filter(p => p[0] != null && !isNaN(p[0]));
-  map.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+  // index range of every ride in the per-second track
+  rides.forEach(b => { b.k0 = T.w.indexOf(b.wave); b.k1 = T.w.lastIndexOf(b.wave); });
+  V = { S, T, rides, C, wave: rides.length ? 0 : -1 };
 
   // speed chart with ride bands
   speedChart?.destroy();
   const bands = { id: 'bands', beforeDatasetsDraw(ch) {
     const { ctx, chartArea: a, scales: { x } } = ch; ctx.save(); ctx.fillStyle = css('--ride') + '33';
     rides.forEach(b => { const x0 = x.getPixelForValue(b.elapsed_min), x1 = x.getPixelForValue(b.elapsed_min + b.seconds / 60); ctx.fillRect(x0, a.top, Math.max(2, x1 - x0), a.bottom - a.top); });
-    ctx.restore(); } };
+    ctx.restore(); },
+    afterDatasetsDraw(ch) {  // slider position while replaying a wave
+      if (ch.$cursor == null) return;
+      const { ctx, chartArea: a, scales: { x } } = ch, px = x.getPixelForValue(ch.$cursor);
+      if (px < a.left || px > a.right) return;
+      ctx.save(); ctx.strokeStyle = css('--ink'); ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); ctx.restore(); } };
   speedChart = new Chart(document.getElementById('speedChart'), {
     type: 'line', plugins: [bands],
     data: { datasets: [
@@ -194,7 +211,7 @@ function select(i) {
     options: { maintainAspectRatio: false, animation: false, parsing: false, interaction: { mode: 'nearest', intersect: false, axis: 'x' },
       plugins: { legend: { labels: { color: css('--muted') } }, decimation: { enabled: true, algorithm: 'min-max' },
         tooltip: { callbacks: { title: it => fmtMin(it[0].parsed.x * 60) } } },
-      scales: { x: { type: 'linear', ticks: { color: css('--muted'), callback: v => v + ' min' }, grid: { color: css('--line') } },
+      scales: { x: { type: 'linear', ticks: { color: css('--muted'), callback: v => fmtMin(v * 60) }, grid: { color: css('--line') } },
         y: { min: 0, ticks: { color: css('--muted') }, grid: { color: css('--line') }, title: { display: true, text: 'm/s', color: css('--muted') } },
         y2: { position: 'right', min: 0, max: 80, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'strokes/min', color: css('--muted') } } } }
   });
@@ -216,11 +233,118 @@ function select(i) {
     (rides.length ? rides.map(b => `<tr class="click" data-w="${b.wave}"><td><span class="pill" style="background:${C.riding}">${b.wave}</span></td><td>${fmtMin(b.elapsed_min * 60)}</td><td>${b.seconds}s</td><td>${b.distance_m.toFixed(0)} m</td><td>${b.peak_speed.toFixed(2)}</td><td>${b.avg_speed.toFixed(2)}</td><td>${Math.round(b.heading)}°</td></tr>`).join('')
       : '<tr><td colspan="7" style="text-align:left;color:var(--muted)">No rides detected in this session.</td></tr>');
   wt.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => {
-    const b = rides.find(r => r.wave === +tr.dataset.w);
-    map.fitBounds(L.latLngBounds([[b.lat, b.lon], [b.lat_end, b.lon_end]]), { padding: [80, 80], maxZoom: 19 });
+    showWave(rides.findIndex(r => r.wave === +tr.dataset.w));
     document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
+  showWave(V.wave);
 }
+
+// ---------------------------------------------------------------- wave viewer
+// One wave at a time: the 40 s before the ride (paddle-in / catch), the ride itself, and 15 s after.
+const LEAD_S = 40, TAIL_S = 15;
+let V = null, playTimer = null, cursor = null;
+const PHASE = { riding: 'riding', paddle_out: 'paddling out', paddling: 'paddling', lineup: 'sitting' };
+const ok = (T, k) => T.lat[k] != null && !isNaN(T.lat[k]);
+
+function drawTrack(T, k0, k1, styleFor) {
+  // draw T[k0..k1] as polylines, split wherever the style changes
+  let seg = [], key = null, style = null;
+  const flush = () => { if (seg.length > 1) layers.push(L.polyline(seg, style).addTo(map)); };
+  for (let k = k0; k <= k1; k++) {
+    if (!ok(T, k)) continue;
+    const p = [T.lat[k], T.lon[k]], s = styleFor(k), sk = JSON.stringify(s);
+    if (sk !== key) { if (seg.length) seg.push(p); flush(); seg = [p]; key = sk; style = s; } else seg.push(p);
+  }
+  flush();
+}
+
+function showWave(n) {
+  stop();
+  const { T, rides, C } = V;
+  V.wave = n;
+  layers.forEach(l => l.remove()); layers = []; cursor?.remove(); cursor = null;
+  const all = n < 0;
+  document.getElementById('allW').classList.toggle('on', all);
+  document.getElementById('prevW').disabled = !rides.length || n === 0;
+  document.getElementById('nextW').disabled = !rides.length || n === rides.length - 1;
+  document.getElementById('wlabel').textContent = rides.length ? (all ? `${rides.length} waves` : `Wave ${n + 1} of ${rides.length}`) : 'No waves';
+  document.getElementById('scrub').style.display = all ? 'none' : '';
+  const lg = (c, t, dash) => `<span><i style="background:${c};${dash ? 'opacity:.6' : ''}"></i>${t}</span>`;
+
+  if (all) {
+    drawTrack(T, 0, T.t.length - 1, k => ({ color: C[T.st[k]], weight: T.st[k] === 'riding' ? 5 : 2.5, opacity: T.st[k] === 'lineup' ? .7 : .9 }));
+    rides.forEach((b, i) => layers.push(L.marker([b.lat, b.lon], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${C.riding};cursor:pointer">${b.wave}</span>`, iconSize: [24, 18], iconAnchor: [12, 9] }) })
+      .bindTooltip(`Wave ${b.wave}: ${b.distance_m.toFixed(0)} m, ${b.seconds}s, peak ${b.peak_speed.toFixed(2)} m/s`).on('click', () => showWave(i)).addTo(map)));
+    const pts = T.lat.map((la, k) => [la, T.lon[k]]).filter(p => p[0] != null && !isNaN(p[0]));
+    map.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+    document.getElementById('winfo').innerHTML = `<span>Whole session · click a numbered wave to step into it</span>`;
+    document.getElementById('maplegend').innerHTML = lg(C.riding, 'Ride') + lg(C.paddle_out, 'Paddle out after a ride') + lg(C.paddling, 'Paddling / positioning') + lg(C.lineup, 'Sitting in the lineup');
+    zoomSpeed(null);
+    return;
+  }
+
+  const b = rides[n];
+  const w0 = Math.max(0, b.k0 - LEAD_S), w1 = Math.min(T.t.length - 1, b.k1 + TAIL_S);
+  V.w0 = w0; V.w1 = w1;
+  // faint context: the rest of the session, so you can see where in the break this wave happened
+  drawTrack(T, 0, T.t.length - 1, () => ({ color: '#ffffff', weight: 1.5, opacity: .3 }));
+  drawTrack(T, w0, w1, k => k < b.k0 ? { color: '#7fc4ff', weight: 4, opacity: 1, dashArray: '8 6' }
+    : k <= b.k1 ? { color: C.riding, weight: 6, opacity: 1 } : { color: '#6ff0d8', weight: 4, opacity: 1, dashArray: '3 6' });
+  const pin = (k, txt, col) => ok(T, k) && layers.push(L.marker([T.lat[k], T.lon[k]], { icon: L.divIcon({ className: '', html: `<span class="pill" style="background:${col}">${txt}</span>`, iconSize: [44, 18], iconAnchor: [22, 22] }) }).addTo(map));
+  pin(b.k0, 'take-off', C.riding); pin(b.k1, 'end', '#444');
+  cursor = L.circleMarker([0, 0], { radius: 7, color: '#fff', weight: 2, fillColor: C.riding, fillOpacity: 1 });
+  const pts = []; for (let k = w0; k <= w1; k++) if (ok(T, k)) pts.push([T.lat[k], T.lon[k]]);
+  map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 19 });
+
+  document.getElementById('winfo').innerHTML =
+    `<span>Starts <b>${fmtMin(T.t[b.k0])}</b></span><span>Ride <b>${b.seconds}s</b></span><span><b>${b.distance_m.toFixed(0)} m</b></span>` +
+    `<span>Peak <b>${b.peak_speed.toFixed(2)} m/s</b></span><span>Avg <b>${b.avg_speed.toFixed(2)} m/s</b></span><span>Heading <b>${Math.round(b.heading)}°</b></span>`;
+  document.getElementById('maplegend').innerHTML = lg('#7fc4ff', `Paddle-in (${LEAD_S}s before)`) + lg(C.riding, 'Ride') + lg('#6ff0d8', `After (${TAIL_S}s)`) + lg('#bbbbbb', 'Rest of session');
+  const pos = document.getElementById('pos');
+  pos.min = w0; pos.max = w1; pos.value = b.k0;
+  moveCursor(b.k0);
+  zoomSpeed([T.t[w0] / 60, T.t[w1] / 60]);
+}
+
+function moveCursor(k) {
+  const { T, C } = V;
+  k = +k;
+  if (cursor && ok(T, k)) { cursor.setLatLng([T.lat[k], T.lon[k]]); if (!map.hasLayer(cursor)) cursor.addTo(map); cursor.setStyle({ fillColor: C[T.st[k]] }); }
+  document.getElementById('posinfo').textContent = `${fmtMin(T.t[k])} · ${T.v[k].toFixed(2)} m/s · ${PHASE[T.st[k]]}${T.sr[k] ? ` · ${T.sr[k]} strokes/min` : ''}`;
+  if (speedChart) { speedChart.$cursor = T.t[k] / 60; speedChart.draw(); }
+}
+
+function stop() { clearInterval(playTimer); playTimer = null; document.getElementById('play').textContent = '▶'; }
+function play() {
+  if (playTimer) return stop();
+  const pos = document.getElementById('pos');
+  if (+pos.value >= +pos.max) pos.value = pos.min;
+  document.getElementById('play').textContent = '❚❚';
+  playTimer = setInterval(() => {   // 4× real time
+    if (+pos.value >= +pos.max) return stop();
+    pos.value = +pos.value + 1; moveCursor(pos.value);
+  }, 250);
+}
+
+function zoomSpeed(range) {
+  if (!speedChart) return;
+  speedChart.options.scales.x.min = range ? range[0] : undefined;
+  speedChart.options.scales.x.max = range ? range[1] : undefined;
+  speedChart.$cursor = null;
+  speedChart.update('none');
+}
+
+document.getElementById('prevW').onclick = () => V.wave > 0 && showWave(V.wave - 1);
+document.getElementById('nextW').onclick = () => V.wave < V.rides.length - 1 && showWave(V.wave + 1);
+document.getElementById('allW').onclick = () => showWave(V.wave < 0 ? (V.rides.length ? 0 : -1) : -1);
+document.getElementById('pos').oninput = e => { stop(); moveCursor(e.target.value); };
+document.getElementById('play').onclick = play;
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;  // let the slider handle its own arrow keys
+  if (e.key === 'ArrowRight' && !e.shiftKey) { e.preventDefault(); document.getElementById('nextW').click(); }
+  if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); document.getElementById('prevW').click(); }
+  if (e.key === ' ' && V && V.wave >= 0) { e.preventDefault(); play(); }
+});
 drawTrend();
 select(cur);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { drawTrend(); select(cur); });
