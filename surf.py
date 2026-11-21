@@ -98,6 +98,16 @@ def read_fit(path: str) -> tuple[pd.DataFrame, dict]:
                 meta.update(sport=str(d.get("sub_sport")), start=d.get("start_time"),
                             calories=d.get("total_calories"), avg_hr=d.get("avg_heart_rate"),
                             max_hr=d.get("max_heart_rate"))
+            elif m.name == "activity":
+                # local_timestamp is the watch's wall-clock time (seconds since 1989-12-31, no tz)
+                d = {f.name: f.value for f in m.fields}
+                if d.get("local_timestamp") is not None and d.get("timestamp") is not None:
+                    lt = d["local_timestamp"]
+                    if isinstance(lt, (int, float)):
+                        local = pd.Timestamp("1989-12-31") + pd.Timedelta(seconds=int(lt))
+                    else:  # fitdecode returns a datetime; treat its wall-clock value as naive
+                        local = pd.Timestamp(lt).tz_localize(None) if pd.Timestamp(lt).tzinfo else pd.Timestamp(lt)
+                    meta["utc_offset"] = (local - pd.Timestamp(d["timestamp"]).tz_localize(None)).round("15min")
     df = pd.DataFrame(rows).sort_values("time").reset_index(drop=True)
     return df, meta
 
@@ -231,8 +241,8 @@ def summarise(aid: str, df: pd.DataFrame, meta: dict, bursts: list[dict], shore:
     hours = df.elapsed_s.iloc[-1] / 3600
     return dict(
         activity_id=aid,
-        date=df.time.iloc[0].strftime("%Y-%m-%d"),
-        start_utc=df.time.iloc[0].strftime("%H:%M"),
+        date=(df.time.iloc[0] + meta.get("utc_offset", pd.Timedelta(0))).strftime("%Y-%m-%d"),  # local date
+        start_local=(df.time.iloc[0] + meta.get("utc_offset", pd.Timedelta(0))).strftime("%H:%M"),
         duration_min=round(df.elapsed_s.iloc[-1] / 60, 1),
         waves=len(rides),
         waves_per_hour=round(len(rides) / hours, 1) if hours else 0,
