@@ -246,9 +246,9 @@ function mixBar(s) {
 // ---- session table: one row per session, one column per question
 const SUM = D.map(d => d.summary);
 const trend = document.getElementById('trend');
-trend.innerHTML = '<tr><th>Date</th><th>Attempted</th><th>Caught</th><th>Catch rate</th><th>Waiting</th><th>Paddled</th><th>Max speed</th></tr>' +
+trend.innerHTML = '<tr><th>Date</th><th>Attempted</th><th>Caught</th><th>Catch rate</th><th>Waiting</th><th>Paddled</th><th>Max speed</th><th style="text-align:left">Wave style</th></tr>' +
   SUM.map((s, i) => `<tr class="click" data-i="${i}"><td>${day(s.date)}</td><td>${s.attempted}</td><td><b>${s.waves}</b></td><td>${pct(s.waves, s.attempted)}%</td>` +
-    `<td>${Math.round(s.waiting_min)} min</td><td>${(s.paddle_m / 1000).toFixed(2)} km</td><td>${s.top_speed_ms.toFixed(2)} m/s</td></tr>`).join('');
+    `<td>${Math.round(s.waiting_min)} min</td><td>${(s.paddle_m / 1000).toFixed(2)} km</td><td>${s.top_speed_ms.toFixed(2)} m/s</td><td style="text-align:left">${mixBar(s)}</td></tr>`).join('');
 trend.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => { select(+tr.dataset.i); document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }); });
 
 let splitChart, speedChart, profileChart, map, layers = [];
