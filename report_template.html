@@ -48,7 +48,7 @@
   tr.click { cursor: pointer; } tr.click:hover td { background: color-mix(in srgb, var(--ride) 8%, transparent); }
   .scroll { overflow-x: auto; }
   .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } #map { height: 340px; } }
   .viewerbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
   .stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -83,6 +83,20 @@
   .wc-stats { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .wc-stats b { color: var(--ink); font-size: 14px; display: block; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .tile small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .mix { display: flex; height: 10px; border-radius: 5px; overflow: hidden; min-width: 120px; background: var(--line); }
+  .mix + .mixlbl { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; }
+  .tile .mix { margin-top: 8px; } .tile .mixlbl { white-space: normal; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+  .how ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .how li { margin-bottom: 6px; } .how b { color: var(--ink); }
+  .how summary { cursor: pointer; }
+  .explain { display: grid; gap: 10px; }
+  .explain .row { display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: center; }
+  .explain .big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .explain p { margin: 0; font-size: 13px; color: var(--muted); }
+  .explain p b { color: var(--ink); }
 </style>
 </head>
 <body>
@@ -91,21 +105,29 @@
   <p class="sub" id="sub"></p>
 
   <section class="card">
-    <h2>All sessions</h2>
+    <h2>Session by session</h2>
     <div class="scroll"><table id="trend"></table></div>
-    <div class="chartbox" style="height:200px;margin-top:12px"><canvas id="trendChart"></canvas></div>
+    <p class="note">Click a session to open it below.</p>
   </section>
 
   <section class="card">
     <h2>Where the time went</h2>
     <div class="chartbox" id="splitBox"><canvas id="splitChart"></canvas></div>
-    <p class="note">Minutes per session. Hover a bar for the share of the session.</p>
+    <p class="note">Minutes per session. Waiting = sitting in the lineup.</p>
   </section>
 
   <h2 style="margin:28px 0 10px">Session detail</h2>
   <div class="tabs" id="tabs"></div>
 
-  <div class="tiles" id="tiles" style="margin-bottom:16px"></div>
+  <div class="tiles kpis" id="tiles" style="margin-bottom:16px"></div>
+
+  <section class="card">
+    <h2>How your waves unfolded</h2>
+    <div class="grid2" style="align-items:center">
+      <div class="chartbox" style="height:260px"><canvas id="profileChart"></canvas></div>
+      <div id="styleExplain"></div>
+    </div>
+  </section>
 
   <section class="card">
     <div class="viewerbar">
@@ -142,6 +164,12 @@
       <div class="stepper">
         <button id="scopeS" class="ghost on">This session</button>
         <button id="scopeA" class="ghost">All sessions</button>
+        <select id="styleW" aria-label="Filter by wave style">
+          <option value="">All styles</option>
+          <option value="quick_dive">Quick dive</option>
+          <option value="balanced">Balanced</option>
+          <option value="late_popup">Late pop-up</option>
+        </select>
         <select id="sortW" aria-label="Sort waves">
           <option value="time">In order</option>
           <option value="dist">Longest distance</option>
@@ -154,16 +182,20 @@
     <p class="note">Every card uses the same scale (map and time), so a longer ride really looks longer. Colours follow the speed scale above; the grey stub is the last 8 s of paddle-in. Click a card to open the wave in the map.</p>
   </section>
 
-  <section class="card">
-    <h2>Other wave activity</h2>
-    <div id="other"></div>
-  </section>
-
-  <section class="card">
-    <h2>Waves</h2>
-    <div class="scroll"><table id="waves"></table></div>
-    <p class="note">Click a wave to show it on its own on the map.</p>
-  </section>
+  <details class="card how">
+    <summary><h2 style="display:inline">How these are measured</h2></summary>
+    <ul>
+      <li><b>Attempted</b>: every burst of speed toward the shore. That's a caught wave, a short glide (no strokes but too slow or short to count), or a sprint where you never stopped paddling.</li>
+      <li><b>Caught</b>: a stroke-free stretch reaching 1.6 m/s or more, lasting at least 5 s and covering 8 m or more toward shore. Stroke-free means you stood up.</li>
+      <li><b>Waiting</b>: time sitting in the lineup, meaning under 0.3 m/s average over 30 s with no strokes.</li>
+      <li><b>Paddled</b>: distance covered while paddling, including paddling back out after rides.</li>
+      <li><b>Max speed</b>: the highest smoothed speed on a caught wave. Open Water mode filters GPS for swimming speeds, so this understates real board speed. It's consistent between sessions, though.</li>
+      <li><b>Wave style</b> looks at the speed through the ride, smoothed over 5 s:
+        <b>quick dive</b> = peak in the first 40% of the ride and the last third at least 10% (of peak) slower than the first;
+        <b>late pop-up</b> = peak in the last 40% and the last third at least 10% faster;
+        otherwise <b>balanced</b>.</li>
+    </ul>
+  </details>
 </main>
 
 <script>
@@ -191,83 +223,64 @@ document.getElementById('speedScale').innerHTML =
 const RIDES = D.map(S => S.bursts.filter(b => b.kind === 'ride').map(b => ({ ...b, k0: S.track.w.indexOf(b.wave), k1: S.track.w.lastIndexOf(b.wave) })));
 
 document.getElementById('sub').textContent =
-  `${D.length} session${D.length === 1 ? '' : 's'} · ${D.reduce((a, s) => a + s.summary.waves, 0)} waves ridden · from Garmin Open Water Swimming exports`;
+  `${D.length} session${D.length === 1 ? '' : 's'} · ${D.reduce((a, s) => a + s.summary.attempted, 0)} waves attempted, ${D.reduce((a, s) => a + s.summary.waves, 0)} caught · from Garmin Open Water Swimming exports`;
 
-// ---- trend table + chart
-const tcols = [['date', 'Date', v => day(v)], ['duration_min', 'Min'], ['waves', 'Waves'], ['waves_per_hour', 'Waves/h'],
-  ['top_speed_ms', 'Top m/s'], ['longest_ride_m', 'Longest m'], ['total_ride_m', 'Ridden m'], ['paddle_m', 'Paddled m'], ['avg_hr', 'Avg HR']];
-const trend = document.getElementById('trend');
-trend.innerHTML = '<tr>' + tcols.map(c => `<th>${c[1]}</th>`).join('') + '</tr>' +
-  D.map((s, i) => '<tr class="click" data-i="' + i + '">' + tcols.map(c => `<td>${c[2] ? c[2](s.summary[c[0]]) : (s.summary[c[0]] ?? '–')}</td>`).join('') + '</tr>').join('');
-trend.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => select(+tr.dataset.i));
-
-let trendChart, speedChart, map, layers = [];
-function drawTrend() {
-  trendChart?.destroy();
-  trendChart = new Chart(document.getElementById('trendChart'), {
-    data: {
-      labels: D.map(s => day(s.summary.date)),
-      datasets: [
-        // lower `order` is drawn last, i.e. on top: keep the speed line above the bars
-        { type: 'bar', label: 'Waves', data: D.map(s => s.summary.waves), backgroundColor: css('--ride') + 'b3', yAxisID: 'y', borderRadius: 4, order: 2 },
-        { type: 'line', label: 'Top speed (m/s)', data: D.map(s => s.summary.top_speed_ms), order: 1, yAxisID: 'y2', tension: .3,
-          borderColor: css('--paddle'), backgroundColor: css('--paddle'), borderWidth: 3,
-          pointRadius: 5, pointHoverRadius: 7, pointBorderColor: css('--card'), pointBorderWidth: 2,
-          segment: { borderColor: css('--paddle') } },
-      ]
-    },
-    options: { maintainAspectRatio: false, plugins: { legend: { labels: { color: css('--muted') } } },
-      scales: { x: { ticks: { color: css('--muted') }, grid: { display: false } },
-        y: { beginAtZero: true, ticks: { color: css('--muted'), precision: 0 }, grid: { color: css('--line') }, title: { display: true, text: 'waves', color: css('--muted') } },
-        y2: { position: 'right', beginAtZero: true, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'm/s', color: css('--muted') } } } }
-  });
+// ---- wave styles
+const STYLES = [
+  ['quick_dive', 'Quick dive', '#8b5cf6', 'fastest at take-off, then slows: you got ahead of the wave'],
+  ['balanced', 'Balanced', '#94a3b8', 'speed holds through the ride'],
+  ['late_popup', 'Late pop-up', '#ec4899', 'fastest at the end: you popped up late and the wave caught you after'],
+];
+const STYLE = Object.fromEntries(STYLES.map(([k, label, color, desc]) => [k, { label, color, desc }]));
+const chip = st => st ? `<span class="chip" style="background:${STYLE[st].color}">${STYLE[st].label}</span>` : '';
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const hm = min => min >= 60 ? `${Math.floor(min / 60)}h ${String(Math.round(min % 60)).padStart(2, '0')}m` : `${Math.round(min)} min`;
+function mixBar(s) {
+  const n = s.waves || 0;
+  if (!n) return '<div class="mix"></div><div class="mixlbl">no waves</div>';
+  return `<div class="mix">${STYLES.map(([k]) => s[k] ? `<div title="${STYLE[k].label}: ${s[k]}" style="width:${s[k] / n * 100}%;background:${STYLE[k].color}"></div>` : '').join('')}</div>` +
+    `<div class="mixlbl">${STYLES.map(([k, l]) => `${pct(s[k], n)}% ${l.toLowerCase()}`).join(' · ')}</div>`;
 }
 
-// ---- time split across sessions (horizontal stacked bars, minutes)
-let splitChart;
-function drawSplit() {
+
+// ---- session table: one row per session, one column per question
+const SUM = D.map(d => d.summary);
+const trend = document.getElementById('trend');
+trend.innerHTML = '<tr><th>Date</th><th>Attempted</th><th>Caught</th><th>Catch rate</th><th>Waiting</th><th>Paddled</th><th>Max speed</th></tr>' +
+  SUM.map((s, i) => `<tr class="click" data-i="${i}"><td>${day(s.date)}</td><td>${s.attempted}</td><td><b>${s.waves}</b></td><td>${pct(s.waves, s.attempted)}%</td>` +
+    `<td>${Math.round(s.waiting_min)} min</td><td>${(s.paddle_m / 1000).toFixed(2)} km</td><td>${s.top_speed_ms.toFixed(2)} m/s</td></tr>`).join('');
+trend.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => { select(+tr.dataset.i); document.getElementById('tabs').scrollIntoView({ behavior: 'smooth' }); });
+
+let splitChart, speedChart, profileChart, map, layers = [];
+const axis = (extra = {}) => ({ ticks: { color: css('--muted') }, grid: { color: css('--line') }, ...extra });
+const legend = { labels: { color: css('--muted'), boxWidth: 14 } };
+
+// labels inside horizontal stacked bars (percent of the row), skipping slivers
+const pctLabels = (rowTotal, fmt = p => p + '%') => ({ id: 'pctLabels', afterDatasetsDraw(ch) {
+  const { ctx } = ch; ctx.save(); ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ch.data.datasets.forEach((ds, di) => ch.isDatasetVisible(di) && ch.getDatasetMeta(di).data.forEach((bar, i) => {
+    const p = pct(ds.data[i], rowTotal(i)), w = Math.abs(bar.x - bar.base), label = fmt(p);
+    if (!p || w < ctx.measureText(label).width + 8) return;
+    ctx.fillStyle = ds.labelColor || '#10161a'; ctx.fillText(label, (bar.x + bar.base) / 2, bar.y);
+  })); ctx.restore(); } });
+
+function drawOverview() {
+  const C = COLORS(), labels = SUM.map(s => day(s.date));
   splitChart?.destroy();
-  const C = COLORS();
-  const parts = [['riding', 'Riding', 'riding_min'], ['paddle_out', 'Paddling out', 'paddle_out_min'],
-    ['paddling', 'Paddling / positioning', 'paddling_min'], ['lineup', 'Sitting in lineup', 'lineup_min']];
-  document.getElementById('splitBox').style.height = (70 + D.length * 38) + 'px';
-  const pct = { id: 'pct', afterDatasetsDraw(ch) {  // write each state's share inside its bar segment
-    const { ctx } = ch; ctx.save();
-    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ch.data.datasets.forEach((ds, di) => {
-      if (!ch.isDatasetVisible(di)) return;
-      ch.getDatasetMeta(di).data.forEach((bar, i) => {
-        const s = D[i].summary, tot = s.riding_min + s.paddle_out_min + s.paddling_min + s.lineup_min;
-        const p = Math.round(ds.data[i] / tot * 100), w = Math.abs(bar.x - bar.base);
-        const label = p + '%';
-        if (w < ctx.measureText(label).width + 8) {
-          // riding is usually a thin sliver: show its share at the end of the bar instead
-          if (di === 0 && ds.data[i] > 0) {
-            const end = Math.max(...ch.getSortedVisibleDatasetMetas().map(m => m.data[i].x));
-            ctx.textAlign = 'left'; ctx.fillStyle = css('--ride');
-            ctx.fillText(`${Math.max(p, 1) === p ? p : '<1'}% riding`, end + 8, bar.y);
-            ctx.textAlign = 'center';
-          }
-          return;  // other narrow segments: the hover tooltip still has it
-        }
-        ctx.fillStyle = di === 0 ? '#ffffff' : '#10161a';
-        ctx.fillText(label, (bar.x + bar.base) / 2, bar.y);
-      });
-    });
-    ctx.restore(); } };
+
+  // Q3: where the time went (waiting vs paddling vs riding)
+  const parts = [['lineup', 'Waiting', s => s.waiting_min], ['paddling', 'Paddling', s => +(s.paddling_min + s.paddle_out_min).toFixed(1)], ['riding', 'Riding', s => s.riding_min]];
+  const rowMin = i => parts.reduce((a, p) => a + p[2](SUM[i]), 0);
+  document.getElementById('splitBox').style.height = (60 + SUM.length * 30) + 'px';
   splitChart = new Chart(document.getElementById('splitChart'), {
-    type: 'bar', plugins: [pct],
-    data: { labels: D.map(s => day(s.summary.date)),
-      datasets: parts.map(([k, label, f]) => ({ label, data: D.map(s => s.summary[f]), backgroundColor: C[k], borderColor: css('--card'), borderWidth: { right: 1 }, barPercentage: .75 })) },
-    options: { indexAxis: 'y', maintainAspectRatio: false, layout: { padding: { right: 90 } },
-      plugins: { legend: { position: 'top', labels: { color: css('--muted'), boxWidth: 14 } },
-        tooltip: { callbacks: { label: c => {
-          const s = D[c.dataIndex].summary, tot = s.riding_min + s.paddle_out_min + s.paddling_min + s.lineup_min;
-          return ` ${c.dataset.label}: ${c.parsed.x} min (${Math.round(c.parsed.x / tot * 100)}%)`; } } } },
-      scales: { x: { stacked: true, ticks: { color: css('--muted'), callback: v => v + ' min' }, grid: { color: css('--line') } },
-        y: { stacked: true, ticks: { color: css('--muted') }, grid: { display: false } } } }
+    type: 'bar', plugins: [pctLabels(rowMin)],
+    data: { labels, datasets: parts.map(([k, label, f]) => ({ label, data: SUM.map(f), backgroundColor: C[k], labelColor: k === 'riding' ? '#fff' : '#10161a', borderColor: css('--card'), borderWidth: { right: 1 }, barPercentage: .78 })) },
+    options: { indexAxis: 'y', maintainAspectRatio: false,
+      plugins: { legend, tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.x} min (${pct(c.parsed.x, rowMin(c.dataIndex))}%)` } } },
+      scales: { x: axis({ stacked: true, ticks: { color: css('--muted'), callback: v => v + ' min' } }), y: { stacked: true, ticks: { color: css('--muted') }, grid: { display: false } } } }
   });
+
 }
 
 // ---- tabs
@@ -280,11 +293,14 @@ function select(i) {
   [...tabs.children].forEach((b, j) => b.classList.toggle('on', j === i));
   const S = D[i], s = S.summary, T = S.track;
   const tiles = [
-    [s.waves, 'waves ridden'], [s.waves_per_hour, 'waves per hour'], [s.top_speed_ms + ' m/s', 'top speed'],
-    [s.longest_ride_m + ' m', `longest ride (${s.longest_ride_s}s)`], [s.total_ride_m + ' m', 'total distance ridden'],
-    [s.duration_min + ' min', 'session length'], [(s.paddle_m / 1000).toFixed(2) + ' km', 'paddled'],
+    [s.attempted, 'waves attempted', `${s.short_rides} short glides · ${s.attempts} sprints`],
+    [s.waves, 'waves caught', `${pct(s.waves, s.attempted)}% catch rate`],
+    [Math.round(s.waiting_min) + ' min', 'waiting in the lineup', `${pct(s.waiting_min, s.duration_min)}% of ${Math.round(s.duration_min)} min session`],
+    [(s.paddle_m / 1000).toFixed(2) + ' km', 'paddled', ''],
+    [s.top_speed_ms.toFixed(2) + ' m/s', 'max speed', ''],
   ];
-  document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span></div>`).join('');
+  document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span>${t[2] ? `<small>${t[2]}</small>` : ''}</div>`).join('') +
+    `<div class="tile"><span>wave style mix</span>${mixBar(s)}</div>`;
 
   const C = COLORS();
   if (!map) {
@@ -331,22 +347,37 @@ function select(i) {
         y2: { position: 'right', min: 0, max: 80, ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'strokes/min', color: css('--muted') } } } }
   });
 
-  document.getElementById('other').innerHTML =
-    `<div class="tiles"><div class="tile"><b>${s.short_rides}</b><span>short glides (fast, no strokes, but too slow/short to count)</span></div>
-     <div class="tile"><b>${s.attempts}</b><span>sprints that didn't turn into a ride</span></div>
-     <div class="tile"><b>${s.total_strokes}</b><span>paddle strokes</span></div></div>`;
-
-  // waves table
-  const wt = document.getElementById('waves');
-  wt.innerHTML = '<tr><th>#</th><th>At</th><th>Duration</th><th>Distance</th><th>Peak m/s</th><th>Avg m/s</th><th>Heading</th></tr>' +
-    (rides.length ? rides.map(b => `<tr class="click" data-w="${b.wave}"><td><span class="pill" style="background:${C.riding}">${b.wave}</span></td><td>${fmtMin(b.elapsed_min * 60)}</td><td>${b.seconds}s</td><td>${b.distance_m.toFixed(0)} m</td><td>${b.peak_speed.toFixed(2)}</td><td>${b.avg_speed.toFixed(2)}</td><td>${Math.round(b.heading)}°</td></tr>`).join('')
-      : '<tr><td colspan="7" style="text-align:left;color:var(--muted)">No rides detected in this session.</td></tr>');
-  wt.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => {
-    showWave(rides.findIndex(r => r.wave === +tr.dataset.w));
-    document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
+  drawProfiles(RIDES[i]);
   drawCards();
   showWave(V.wave);
+}
+
+// ---- how the session's waves unfolded: normalised speed profiles, coloured by style
+function drawProfiles(rides) {
+  profileChart?.destroy();
+  const xs = Array.from({ length: 20 }, (_, j) => Math.round(j / 19 * 100));
+  const thin = rides.filter(b => b.profile).map(b => ({
+    label: `Wave ${b.wave}`, style: b.style, data: b.profile.map((v, j) => ({ x: xs[j], y: v * 100 })),
+    borderColor: STYLE[b.style].color + '59', borderWidth: 1.5, pointRadius: 0, tension: .35 }));
+  const avg = STYLES.map(([k, label, color]) => {
+    const g = rides.filter(b => b.style === k && b.profile);
+    return g.length ? { label: `${label} average`, style: k, data: xs.map((x, j) => ({ x, y: g.reduce((a, b) => a + b.profile[j], 0) / g.length * 100 })),
+      borderColor: color, borderWidth: 4, pointRadius: 0, tension: .35 } : null;
+  }).filter(Boolean);
+  profileChart = new Chart(document.getElementById('profileChart'), {
+    type: 'line', data: { datasets: [...avg, ...thin] },
+    options: { maintainAspectRatio: false, animation: false, parsing: true,
+      plugins: { legend: { display: false }, tooltip: { filter: it => it.dataset.borderWidth > 2,
+        callbacks: { title: it => `${it[0].parsed.x}% through the ride`, label: c => ` ${c.dataset.label}: ${Math.round(c.parsed.y)}% of peak` } } },
+      scales: { x: { type: 'linear', min: 0, max: 100, ticks: { color: css('--muted'), callback: v => v === 0 ? 'take-off' : v === 100 ? 'end' : v + '%' }, grid: { color: css('--line') } },
+        y: { min: 40, max: 100, ticks: { color: css('--muted'), callback: v => v + '%' }, grid: { color: css('--line') }, title: { display: true, text: 'speed, % of the wave\'s peak', color: css('--muted') } } } }
+  });
+  const n = rides.length;
+  document.getElementById('styleExplain').innerHTML = n ? `<div class="explain">${STYLES.map(([k, label, color, desc]) => {
+    const c = rides.filter(b => b.style === k).length;
+    return `<div class="row"><div class="big" style="color:${color}">${pct(c, n)}%</div><p><b>${label}</b> · ${c} of ${n} wave${n === 1 ? '' : 's'}<br>${desc}</p></div>`;
+  }).join('')}<p class="note" style="margin:0">Thin lines are single waves; thick lines are each style's average. Time and speed are normalised, so short and long waves compare directly.</p></div>`
+    : '<p class="note">No waves caught in this session.</p>';
 }
 
 // ---------------------------------------------------------------- wave viewer
@@ -435,7 +466,7 @@ function showWave(n) {
   }
 
   document.getElementById('winfo').innerHTML =
-    `<span>Starts <b>${fmtMin(T.t[b.k0])}</b></span><span>Ride <b>${b.seconds}s</b></span><span><b>${b.distance_m.toFixed(0)} m</b></span>` +
+    `${chip(b.style)}<span>Starts <b>${fmtMin(T.t[b.k0])}</b></span><span>Ride <b>${b.seconds}s</b></span><span><b>${b.distance_m.toFixed(0)} m</b></span>` +
     `<span>Peak <b>${b.peak_speed.toFixed(2)} m/s</b></span><span>Avg <b>${b.avg_speed.toFixed(2)} m/s</b></span><span>Heading <b>${Math.round(b.heading)}°</b></span>`;
   document.getElementById('maplegend').innerHTML =
     `<span><i style="background:linear-gradient(90deg, rgb(34,211,238), rgb(250,204,21), rgb(220,38,38))"></i>Ride, coloured by speed</span>` +
@@ -490,20 +521,20 @@ function onMapHover(e) {
 
 // ---------------------------------------------------------------- wave cards
 // Same metres-per-pixel and seconds-per-pixel on every card, so cards compare at a glance.
-let cardScope = 'session', cardSort = 'time';
+let cardScope = 'session', cardSort = 'time', cardStyle = '';
 const CARD_W = 160, MAP_H = 96, SPARK_H = 34, CARD_LEAD = 8;
 function cardList() {
   const out = [];
   D.forEach((S, si) => {
     if (cardScope === 'session' && si !== cur) return;
-    RIDES[si].forEach((b, n) => out.push({ si, n, b, T: S.track }));
+    RIDES[si].forEach((b, n) => { if (!cardStyle || b.style === cardStyle) out.push({ si, n, b, T: S.track }); });
   });
   const key = { time: c => c.si * 1e6 + c.b.k0, dist: c => -c.b.distance_m, dur: c => -c.b.seconds, peak: c => -c.b.peak_speed }[cardSort];
   return out.sort((a, b) => key(a) - key(b));
 }
 function drawCards() {
   const list = cardList(), el = document.getElementById('cards');
-  if (!list.length) { el.innerHTML = '<p class="note">No rides detected.</p>'; return; }
+  if (!list.length) { el.innerHTML = `<p class="note">No ${cardStyle ? STYLE[cardStyle].label.toLowerCase() + ' ' : ''}waves here.</p>`; return; }
   // project every card's points to local metres (east, north)
   const lat0 = list[0].T.lat.find(v => v != null && !isNaN(v)) * Math.PI / 180;
   const xy = (T, k) => [T.lon[k] * 111320 * Math.cos(lat0), T.lat[k] * 110540];
@@ -536,6 +567,7 @@ function drawCards() {
     const when = cardScope === 'all' ? `${day(D[c.si].summary.date)} · ` : '';
     return `<div class="wcard" data-si="${c.si}" data-n="${c.n}" title="Open wave ${b.wave} in the map">
       <div class="wc-head"><span><span class="pill" style="background:${speedColor(b.peak_speed)}">${b.wave}</span> ${when}${fmtMin(c.T.t[b.k0])}</span><span class="badge">${badges}</span></div>
+      <div style="margin-top:6px">${chip(b.style)}</div>
       <svg class="wc-map" viewBox="0 0 ${CARD_W} ${MAP_H}" role="img" aria-label="Shape of wave ${b.wave}">${mapSvg}</svg>
       <svg viewBox="0 0 ${CARD_W} ${SPARK_H}" role="img" aria-label="Speed through wave ${b.wave}"><line x1="0" y1="${SPARK_H - 2}" x2="${CARD_W}" y2="${SPARK_H - 2}" stroke="var(--line)"/>${spark}</svg>
       <div class="wc-stats"><span><b>${b.seconds}s</b>ride</span><span><b>${b.distance_m.toFixed(0)} m</b>distance</span><span><b>${b.peak_speed.toFixed(2)}</b>peak m/s</span></div>
@@ -555,6 +587,7 @@ function markCard() {
 document.getElementById('scopeS').onclick = () => { cardScope = 'session'; document.getElementById('scopeS').classList.add('on'); document.getElementById('scopeA').classList.remove('on'); drawCards(); };
 document.getElementById('scopeA').onclick = () => { cardScope = 'all'; document.getElementById('scopeA').classList.add('on'); document.getElementById('scopeS').classList.remove('on'); drawCards(); };
 document.getElementById('sortW').onchange = e => { cardSort = e.target.value; drawCards(); };
+document.getElementById('styleW').onchange = e => { cardStyle = e.target.value; drawCards(); };
 
 document.getElementById('prevW').onclick = () => V.wave > 0 && showWave(V.wave - 1);
 document.getElementById('nextW').onclick = () => V.wave < V.rides.length - 1 && showWave(V.wave + 1);
@@ -567,9 +600,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' && !e.shiftKey) { e.preventDefault(); document.getElementById('prevW').click(); }
   if (e.key === ' ' && V && V.wave >= 0) { e.preventDefault(); play(); }
 });
-drawTrend(); drawSplit();
+drawOverview();
 select(cur);
-matchMedia('(prefers-color-scheme: dark)').addEventListener("change", () => { drawTrend(); drawSplit(); select(cur); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener("change", () => { drawOverview(); select(cur); });
 </script>
 </body>
 </html>

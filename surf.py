@@ -52,6 +52,10 @@ SIT_SPEED = 0.30         # m/s (30 s rolling mean) below this with no strokes =>
 SIT_WINDOW = 30          # s
 STROKE_FREE_WINDOW = 4   # s: a second is "stroke-free" if no stroke is counted within +/- this window/2
 MAX_PLAUSIBLE_SPEED = 8  # m/s: faster GPS steps are glitches (usually at satellite lock)
+# wave style (see wave_style): where the speed peaks, and how much the last third differs from the first
+STYLE_EARLY_PEAK = 0.40  # peak in the first 40% of the ride ...
+STYLE_LATE_PEAK = 0.60   # ... or in the last 40%
+STYLE_SHAPE = 0.10       # and the end is >=10% of peak speed slower (quick dive) / faster (late pop-up) than the start
 # ------------------------------------------------------------------------------------------
 
 SEMI = 180 / 2**31
@@ -234,6 +238,33 @@ def label_states(df: pd.DataFrame, bursts: list[dict]) -> pd.DataFrame:
     return df
 
 
+def wave_style(df: pd.DataFrame, bursts: list[dict]) -> None:
+    """Classify each ride by how its speed unfolds.
+
+    quick_dive  - fastest at the start, then slows: you dropped in early and got ahead of the wave
+    late_popup  - fastest towards the end: you popped up late and the wave caught you after
+    balanced    - speed holds or peaks in the middle
+    """
+    for b in bursts:
+        if b["kind"] != "ride":
+            continue
+        v = df.speed.iloc[b["i0"]:b["i1"] + 1].to_numpy()
+        vs = pd.Series(v).rolling(5, center=True, min_periods=1).mean().to_numpy()  # ignore 1-2 s spikes
+        n, peak = len(vs), float(vs.max()) or 1.0
+        third = max(1, n // 3)
+        first, last = float(vs[:third].mean()), float(vs[-third:].mean())
+        b["peak_pos"] = float(np.argmax(vs) / max(1, n - 1))    # 0 = peak at take-off, 1 = peak at the end
+        b["shape"] = (last - first) / peak                        # <0 slows down, >0 speeds up
+        # speed profile resampled to 20 points of normalised time, normalised by the ride's peak
+        b["profile"] = [round(float(x), 3) for x in np.interp(np.linspace(0, n - 1, 20), np.arange(n), vs) / peak]
+        if b["peak_pos"] <= STYLE_EARLY_PEAK and b["shape"] <= -STYLE_SHAPE:
+            b["style"] = "quick_dive"
+        elif b["peak_pos"] >= STYLE_LATE_PEAK and b["shape"] >= STYLE_SHAPE:
+            b["style"] = "late_popup"
+        else:
+            b["style"] = "balanced"
+
+
 def summarise(aid: str, df: pd.DataFrame, meta: dict, bursts: list[dict], shore: float | None) -> dict:
     rides = [b for b in bursts if b["kind"] == "ride"]
     secs = df.groupby("state").size().to_dict()
@@ -244,7 +275,15 @@ def summarise(aid: str, df: pd.DataFrame, meta: dict, bursts: list[dict], shore:
         date=(df.time.iloc[0] + meta.get("utc_offset", pd.Timedelta(0))).strftime("%Y-%m-%d"),  # local date
         start_local=(df.time.iloc[0] + meta.get("utc_offset", pd.Timedelta(0))).strftime("%H:%M"),
         duration_min=round(df.elapsed_s.iloc[-1] / 60, 1),
-        waves=len(rides),
+        # the five headline questions
+        attempted=sum(b["kind"] in ("ride", "short", "attempt") for b in bursts),  # every go at a wave
+        waves=len(rides),                                                          # actually caught
+        catch_rate=round(len(rides) / max(1, sum(b["kind"] in ("ride", "short", "attempt") for b in bursts)), 2),
+        waiting_min=round(secs.get("lineup", 0) / 60, 1),
+        # paddle_m and top_speed_ms below
+        quick_dive=sum(b.get("style") == "quick_dive" for b in rides),
+        balanced=sum(b.get("style") == "balanced" for b in rides),
+        late_popup=sum(b.get("style") == "late_popup" for b in rides),
         waves_per_hour=round(len(rides) / hours, 1) if hours else 0,
         short_rides=sum(b["kind"] == "short" for b in bursts),
         attempts=sum(b["kind"] == "attempt" for b in bursts),
@@ -273,6 +312,7 @@ def process(path: str, debug: bool) -> tuple[dict, pd.DataFrame, list[dict]]:
     shore = shore_bearing(bursts)
     classify(bursts, shore)
     df = label_states(df, bursts)
+    wave_style(df, bursts)
     s = summarise(aid, df, meta, bursts, shore)
     os.makedirs(DATA, exist_ok=True)
     cols = ["time", "elapsed_s", "lat", "lon", "speed", "garmin_speed", "heart_rate", "stroke_rate",
@@ -304,8 +344,8 @@ def main() -> None:
     out = pd.DataFrame(sessions).sort_values("date")
     out.to_csv(os.path.join(HERE, "sessions.csv"), index=False)
     write_report(sorted(report, key=lambda r: r["summary"]["date"]))
-    show = ["date", "duration_min", "waves", "waves_per_hour", "short_rides", "attempts", "top_speed_ms",
-            "longest_ride_m", "longest_ride_s", "riding_min", "paddle_out_min", "lineup_min", "paddle_m"]
+    show = ["date", "attempted", "waves", "catch_rate", "waiting_min", "paddle_m", "top_speed_ms",
+            "quick_dive", "balanced", "late_popup"]
     print("\n" + out[show].to_string(index=False))
     print(f"\nWrote sessions.csv, data/*_track.csv, data/*_bursts.csv and index.html ({len(files)} sessions)")
 
@@ -321,11 +361,13 @@ def df_for_report(df: pd.DataFrame) -> dict:
 
 def bursts_for_report(bursts: list[dict]) -> list[dict]:
     keep = ["kind", "wave", "elapsed_min", "seconds", "peak_speed", "avg_speed", "distance_m",
-            "burst_seconds", "burst_peak", "stroke_rate", "heading", "lat", "lon", "lat_end", "lon_end", "why_not"]
+            "burst_seconds", "burst_peak", "stroke_rate", "heading", "lat", "lon", "lat_end", "lon_end", "why_not",
+            "style", "peak_pos", "shape", "profile"]
     out = []
     for b in bursts:
         if b["kind"] in ("ride", "short", "attempt"):
-            out.append({k: (round(v, 6) if isinstance(v, float) else v) for k, v in b.items() if k in keep})
+            out.append({k: (round(v, 6) if isinstance(v, float) else v) for k, v in b.items() if k in keep and k != "profile"}
+                       | ({"profile": b["profile"]} if "profile" in b else {}))
     return out
 
 
