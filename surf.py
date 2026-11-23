@@ -50,6 +50,7 @@ RIDE_MAX_STROKE_RATE = 12  # strokes/min while at speed (standing up => strokes 
 SHORE_CONE_DEG = 80      # a ride must head within this angle of the shoreward direction
 SIT_SPEED = 0.30         # m/s (30 s rolling mean) below this with no strokes => sitting
 SIT_WINDOW = 30          # s
+EXIT_TRIM_S = 60         # s: ignore bursts starting in the session's last minute (walking out, GPS snaps back)
 STROKE_FREE_WINDOW = 4   # s: a second is "stroke-free" if no stroke is counted within +/- this window/2
 MAX_PLAUSIBLE_SPEED = 8  # m/s: faster GPS steps are glitches (usually at satellite lock)
 # wave style (see wave_style): where the speed peaks, and how much the last third differs from the first
@@ -192,7 +193,7 @@ def shore_bearing(bursts: list[dict]) -> float | None:
     return bearing(sx, cy)
 
 
-def classify(bursts: list[dict], shore: float | None) -> None:
+def classify(bursts: list[dict], shore: float | None, end_min: float = float("inf")) -> None:
     for b in bursts:
         to_shore = shore is None or angdiff(b["heading"], shore) <= SHORE_CONE_DEG
         b["to_shore"] = to_shore
@@ -202,8 +203,11 @@ def classify(bursts: list[dict], shore: float | None) -> None:
         if b["distance_m"] < RIDE_MIN_DIST: reasons.append("little distance")
         if b["stroke_rate"] > RIDE_MAX_STROKE_RATE: reasons.append("still stroking")
         if not to_shore: reasons.append("not toward shore")
+        if b["elapsed_min"] > end_min - EXIT_TRIM_S / 60: reasons.append("leaving the water")
         if not reasons:
             b["kind"] = "ride"
+        elif "leaving the water" in reasons:
+            b["kind"] = "other"
         elif to_shore and b["stroke_rate"] > RIDE_MAX_STROKE_RATE:
             b["kind"] = "attempt"       # sprinting for a wave without standing up / riding it
         elif to_shore and set(reasons) <= {"short", "little distance", "slow"}:
@@ -310,7 +314,7 @@ def process(path: str, debug: bool) -> tuple[dict, pd.DataFrame, list[dict]]:
     df = add_kinematics(df)
     bursts = find_bursts(df)
     shore = shore_bearing(bursts)
-    classify(bursts, shore)
+    classify(bursts, shore, df.elapsed_s.iloc[-1] / 60)
     df = label_states(df, bursts)
     wave_style(df, bursts)
     s = summarise(aid, df, meta, bursts, shore)

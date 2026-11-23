@@ -31,6 +31,7 @@ Then open `index.html` (published at GitHub Pages after you push). Add `--debug`
 - **Shore direction** is inferred per session from the direction of the fast, stroke-free bursts, so it works at any break.
 - **Short glide**: stroke-free and toward shore but too slow or short to count (small wave, fell early, whitewater push).
 - **Attempt**: a fast sprint that never stopped stroking.
+- **Leaving the water**: bursts that start in the session's last 60 s are ignored. Walking out, the watch's GPS snaps back into place and fakes a fast "ride" (`EXIT_TRIM_S`).
 - **Lineup**: under 0.3 m/s average over 30 s with no strokes. **Paddle out**: paddling after a ride until you next sit in the lineup.
 
 Thresholds are at the top of `surf.py`.
