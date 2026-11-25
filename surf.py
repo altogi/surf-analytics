@@ -4,11 +4,17 @@
 # ///
 """Surf session analysis from Garmin "Open Water Swimming" FIT exports.
 
-Usage (from this folder):
-    uv run surf.py            # process every export in this folder, write data/ and report.html
-    uv run surf.py --debug    # also print every speed burst with its classification
+Sessions are grouped by location: one folder per spot or trip under locations/, e.g.
+locations/siargao/. Each folder gets its own report (index.html) and sessions.csv, and the
+top-level index.html links to every location.
 
-Drop new Garmin exports (the .zip from "Export File", or a .fit) into this folder and re-run.
+Usage (from this folder):
+    uv run surf.py                 # process every location
+    uv run surf.py siargao         # just one location
+    uv run surf.py --debug         # also print every speed burst with its classification
+
+Drop new Garmin exports (the .zip from "Export File", or a .fit) into the location's folder
+(create locations/<name>/ for a new place) and re-run.
 
 How it works
 ------------
@@ -39,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RAW, DATA = os.path.join(HERE, "raw"), os.path.join(HERE, "data")
+LOCATIONS = os.path.join(HERE, "locations")
 
 # ---- tunable thresholds -------------------------------------------------------------------
 BURST_SPEED = 1.2        # m/s: a burst = contiguous seconds at or above this speed
@@ -63,15 +69,16 @@ SEMI = 180 / 2**31
 R_EARTH = 6371000.0
 
 
-def unpack_exports() -> list[str]:
-    """Extract every *.zip export into raw/ and return the list of FIT files."""
+def unpack_exports(loc: str) -> list[str]:
+    """Extract every *.zip export in a location folder into its raw/ and return the FIT files."""
+    RAW = os.path.join(loc, "raw")
     os.makedirs(RAW, exist_ok=True)
-    for z in glob.glob(os.path.join(HERE, "*.zip")):
+    for z in glob.glob(os.path.join(loc, "*.zip")):
         with zipfile.ZipFile(z) as zf:
             for name in zf.namelist():
                 if name.lower().endswith(".fit") and not os.path.exists(os.path.join(RAW, name)):
                     zf.extract(name, RAW)
-    for f in glob.glob(os.path.join(HERE, "*.fit")):  # loose .fit files dropped in the folder
+    for f in glob.glob(os.path.join(loc, "*.fit")):  # loose .fit files dropped in the folder
         dst = os.path.join(RAW, os.path.basename(f))
         if not os.path.exists(dst):
             os.replace(f, dst)
@@ -308,7 +315,7 @@ def summarise(aid: str, df: pd.DataFrame, meta: dict, bursts: list[dict], shore:
     )
 
 
-def process(path: str, debug: bool) -> tuple[dict, pd.DataFrame, list[dict]]:
+def process(path: str, debug: bool, DATA: str) -> tuple[dict, pd.DataFrame, list[dict]]:
     aid = os.path.basename(path).split("_")[0].split(".")[0]
     df, meta = read_fit(path)
     df = add_kinematics(df)
@@ -333,25 +340,59 @@ def process(path: str, debug: bool) -> tuple[dict, pd.DataFrame, list[dict]]:
     return s, df, bursts
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--debug", action="store_true", help="print every speed burst and its classification")
-    args = ap.parse_args()
-    files = unpack_exports()
+def location_title(name: str, dates: list[str]) -> str:
+    """'siargao' + sessions in 2026 -> 'Siargao Surfing 2026'."""
+    place = name.replace("-", " ").replace("_", " ").title()
+    years = sorted({d[:4] for d in dates})
+    return f"{place} Surfing {years[0]}" + (f"-{years[-1]}" if len(years) > 1 else "")
+
+
+def process_location(loc: str, debug: bool) -> None:
+    name = os.path.basename(loc)
+    files = unpack_exports(loc)
     if not files:
-        raise SystemExit("No Garmin exports found. Drop the .zip (Export File) into this folder.")
+        print(f"{name}: no Garmin exports, skipped")
+        return
     sessions, report = [], []
     for f in files:
-        s, df, bursts = process(f, args.debug)
+        s, df, bursts = process(f, debug, os.path.join(loc, "data"))
         sessions.append(s)
         report.append(dict(summary=s, track=df_for_report(df), bursts=bursts_for_report(bursts)))
     out = pd.DataFrame(sessions).sort_values("date")
-    out.to_csv(os.path.join(HERE, "sessions.csv"), index=False)
-    write_report(sorted(report, key=lambda r: r["summary"]["date"]))
+    out.to_csv(os.path.join(loc, "sessions.csv"), index=False)
+    title = location_title(name, out.date.astype(str).tolist())
+    write_report(loc, title, sorted(report, key=lambda r: r["summary"]["date"]))
     show = ["date", "attempted", "waves", "catch_rate", "waiting_min", "paddle_m", "top_speed_ms",
             "quick_dive", "balanced", "late_popup"]
-    print("\n" + out[show].to_string(index=False))
-    print(f"\nWrote sessions.csv, data/*_track.csv, data/*_bursts.csv and index.html ({len(files)} sessions)")
+    print(f"\n== {title} ==\n" + out[show].to_string(index=False))
+    print(f"Wrote locations/{name}/: index.html, sessions.csv, data/ ({len(files)} sessions)")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("locations", nargs="*", help="location folder names under locations/ (default: all)")
+    ap.add_argument("--debug", action="store_true", help="print every speed burst and its classification")
+    args = ap.parse_args()
+    all_locs = sorted(d for d in glob.glob(os.path.join(LOCATIONS, "*")) if os.path.isdir(d))
+    if not all_locs:
+        raise SystemExit("No locations found. Create locations/<name>/ and drop the Garmin .zip exports in it.")
+    wanted = [os.path.join(LOCATIONS, n) for n in args.locations] or all_locs
+    for loc in wanted:
+        if not os.path.isdir(loc):
+            raise SystemExit(f"No such location folder: {loc}")
+        process_location(loc, args.debug)
+    # landing page: summarise every location from its sessions.csv (so a single-location run keeps the others)
+    index = []
+    for loc in all_locs:
+        csv = os.path.join(loc, "sessions.csv")
+        if os.path.exists(csv):
+            out = pd.read_csv(csv)
+            name = os.path.basename(loc)
+            index.append(dict(slug=name, title=location_title(name, out.date.astype(str).tolist()), sessions=len(out),
+                              first=str(out.date.min()), last=str(out.date.max()), attempted=int(out.attempted.sum()),
+                              waves=int(out.waves.sum()), top_speed_ms=float(out.top_speed_ms.max())))
+    write_landing(sorted(index, key=lambda r: r["last"], reverse=True))
+    print(f"\nWrote index.html ({len(index)} location{'' if len(index) == 1 else 's'})")
 
 
 def df_for_report(df: pd.DataFrame) -> dict:
@@ -375,11 +416,17 @@ def bursts_for_report(bursts: list[dict]) -> list[dict]:
     return out
 
 
-def write_report(sessions: list[dict]) -> None:
+def write_report(loc: str, title: str, sessions: list[dict]) -> None:
     tpl = open(os.path.join(HERE, "report_template.html"), encoding="utf-8").read()
-    html = tpl.replace("/*__DATA__*/null", json.dumps(sessions, default=str))
-    with open(os.path.join(HERE, "index.html"), "w", encoding="utf-8") as fh:
+    html = tpl.replace("__TITLE__", title).replace("/*__DATA__*/null", json.dumps(sessions, default=str))
+    with open(os.path.join(loc, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
+
+
+def write_landing(locations: list[dict]) -> None:
+    tpl = open(os.path.join(HERE, "landing_template.html"), encoding="utf-8").read()
+    with open(os.path.join(HERE, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(tpl.replace("/*__DATA__*/null", json.dumps(locations)))
 
 
 if __name__ == "__main__":

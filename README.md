@@ -2,23 +2,41 @@
 
 Turns Garmin **Open Water Swimming** recordings of surf sessions into surf stats.
 
+## Layout
+
+Sessions are grouped by location, one folder each under `locations/`:
+
+```
+Surf Analytics/
+├── surf.py, report_template.html, landing_template.html
+├── index.html                  ← landing page linking every location
+└── locations/
+    └── siargao/
+        ├── *.zip               ← Garmin exports (kept locally, not committed)
+        ├── index.html          ← the "Siargao Surfing 2026" report
+        ├── sessions.csv
+        ├── data/, raw/         ← generated, not committed
+```
+
+A report's title comes from the folder name and the years of its sessions (`siargao` + 2026 → "Siargao Surfing 2026").
+
 ## Adding a new session
 
 1. On connect.garmin.com (web, not the phone app) open the activity → ⚙️ → **Export File**.
-2. Drop the `.zip` into this folder.
+2. Drop the `.zip` into its location folder, e.g. `locations/siargao/`. For a new place, create the folder first (`locations/bilbao/`).
 3. Run:
 
 ```bash
-cd ~/Downloads/surf_analysis && uv run surf.py
+cd ~/Documents/Projects/"Surf Analytics" && uv run surf.py
 ```
 
-Then open `index.html` (published at GitHub Pages after you push). Add `--debug` to see every speed burst and why it was or wasn't counted as a wave.
+This rebuilds every location and the landing page. `uv run surf.py bilbao` rebuilds just one. Add `--debug` to see every speed burst and why it was or wasn't counted as a wave.
 
-## Outputs
+## Outputs (per location)
 
 | File | What it is |
 |---|---|
-| `index.html` | Maps, speed charts, wave list and trends across sessions |
+| `index.html` | Session table, time split, maps, speed charts and wave cards |
 | `sessions.csv` | One row per session: waves attempted / caught, catch rate, time waiting, distance paddled, max speed, wave style counts |
 | `data/<id>_track.csv` | Every second: time, lat, lon, speed, heart rate, stroke rate, state, wave number |
 | `data/<id>_bursts.csv` | Every fast burst with its classification (ride / short / attempt / other) |
